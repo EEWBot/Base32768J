@@ -1,0 +1,177 @@
+import org.gradle.kotlin.dsl.register
+import org.jreleaser.model.Active
+
+plugins {
+    id("java")
+    `maven-publish`
+    signing
+    id("org.jreleaser") version "1.21.0"
+    id("me.champeau.jmh") version "0.7.3"
+}
+
+group = "net.eewbot"
+version = "0.1.0-SNAPSHOT"
+description = "An implementation of base32768 encoding in Java with Base64 like API."
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation(platform("org.junit:junit-bom:6.0.1"))
+    testImplementation("org.junit.jupiter:junit-jupiter:6.0.1")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:6.0.1")
+}
+
+tasks {
+    register<Copy>("includeReadmeAndLicense") {
+        destinationDir = project.layout.buildDirectory.file("resources/main").get().asFile
+
+        from(rootProject.file("LICENSE")) {
+            rename { "LICENSE_${rootProject.name}" }
+        }
+
+        from(rootProject.file("README.md")) {
+            rename { "README_${rootProject.name}.md" }
+        }
+    }
+
+    java {
+        withSourcesJar()
+        withJavadocJar()
+    }
+
+    jar {
+        dependsOn("includeReadmeAndLicense")
+    }
+
+    javadoc {
+        dependsOn("includeReadmeAndLicense")
+    }
+
+    compileTestJava {
+        dependsOn("includeReadmeAndLicense")
+    }
+
+    assemble {
+        dependsOn("sourcesJar")
+    }
+
+    test {
+        useJUnitPlatform()
+    }
+
+    jmh {
+        jmhVersion = "1.37"
+
+        warmupIterations = 3
+        warmup = "5s"
+        iterations = 3
+        timeOnIteration = "5s"
+        fork = 5
+
+        forceGC = true
+        resultFormat = "JSON"
+        failOnError = true
+    }
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("publication") {
+            groupId = rootProject.group.toString()
+            artifactId = rootProject.name
+            version = rootProject.version.toString()
+
+            from(components.getByName("java"))
+
+            pom {
+                name.set(artifactId)
+                description.set(rootProject.description)
+                url.set("https://github.com/EEWBot/Base32768J")
+
+                licenses {
+                    license {
+                        name.set("The MIT License")
+                        url.set("https://opensource.org/license/mit")
+                    }
+                }
+
+                developers {
+                    developer {
+                        id.set("Siro256")
+                        name.set("Siro_256")
+                        email.set("siro@siro256.dev")
+                        url.set("https://github.com/Siro256")
+                    }
+                }
+
+                scm {
+                    connection.set("scm:git:git://github.com/EEWBot/Base32768J.git")
+                    developerConnection.set("scm:git:ssh://github.com/EEWBot/Base32768J.git")
+                    url.set("https://github.com/EEWBot/Base32768J")
+                }
+            }
+        }
+    }
+
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/EEWBot/Base32768J")
+            credentials {
+                username = "EEWBot"
+                password = System.getenv("GPR_KEY")
+            }
+        }
+
+        maven {
+            name = "Local"
+            url = uri(project.layout.buildDirectory.dir("staging-deploy"))
+        }
+
+        if (rootProject.version.toString().endsWith("SNAPSHOT")) {
+            maven {
+                name = "MavenCentralSNAPSHOT"
+                url = uri("https://central.sonatype.com/repository/maven-snapshots/")
+                credentials {
+                    username = System.getenv("MAVEN_CENTRAL_USERNAME")
+                    password = System.getenv("MAVEN_CENTRAL_PASSWORD")
+                }
+            }
+        }
+    }
+}
+
+jreleaser {
+    release {
+        github {
+            enabled.set(false)
+            token.set("EMPTY")
+        }
+    }
+
+    deploy {
+        maven {
+            mavenCentral {
+                create("sonatype") {
+                    active.set(Active.RELEASE)
+                    sign.set(false)
+                    url.set("https://central.sonatype.com/api/v1/publisher")
+                    stagingRepository("build/staging-deploy")
+                    username.set(System.getenv("MAVEN_CENTRAL_USERNAME"))
+                    password.set(System.getenv("MAVEN_CENTRAL_PASSWORD"))
+                }
+            }
+        }
+    }
+}
+
+signing {
+    useInMemoryPgpKeys(
+        System.getenv("SIGNING_KEY_ID"),
+        System.getenv("SIGNING_KEY"),
+        System.getenv("SIGNING_KEY_PASSWORD"),
+    )
+    sign(publishing.publications.getByName("publication"))
+}
