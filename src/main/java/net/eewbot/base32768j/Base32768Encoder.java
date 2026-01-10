@@ -136,7 +136,7 @@ public class Base32768Encoder {
     public String encodeToString(byte[] src) {
         if (src.length == 0) return "";
 
-        int[] codePoints = new int[(src.length * 16 + 14) / 15];
+        int[] codePoints = new int[(src.length * 8 + 14) / 15];
         int i = 0;
         int buf = 0; // 左詰め
         int bufCount = 0;
@@ -144,20 +144,20 @@ public class Base32768Encoder {
         int remainingCount = 0;
 
         for (byte b : src) {
-            remaining = remaining << 8 + b;
+            remaining = remaining << 8 | b & 0xFF;
             remainingCount += 8;
 
             if (15 - bufCount >= remainingCount) {
-                buf += remaining << 15 - bufCount - remainingCount;
+                buf |= remaining << 15 - bufCount - remainingCount;
                 bufCount += remainingCount;
                 remaining = 0;
                 remainingCount = 0;
             } else {
                 int moveCount = 15 - bufCount;
                 int remainingCountAfter = remainingCount - moveCount;
-                buf += remaining >> remainingCountAfter;
+                buf |= remaining >> remainingCountAfter;
                 bufCount += moveCount;
-                remaining &= 0x7FFF >> moveCount;
+                remaining &= (1 << remainingCountAfter) - 1;
                 remainingCount = remainingCountAfter;
             }
 
@@ -168,11 +168,14 @@ public class Base32768Encoder {
             }
         }
 
+        buf |= remaining << 15 - bufCount - remainingCount;
+        bufCount += remainingCount;
+
         if (bufCount >= 8) {
-            buf += 0x7F >> bufCount - 8;
+            buf |= 0x7F >> bufCount - 8;
             codePoints[i] = CODES_15[buf / 32] + buf % 32;
         } else if (bufCount > 0) {
-            buf += 0x3F >> bufCount - 1;
+            buf = buf >> 8 | 0x3F >> bufCount - 1;
             codePoints[i] = CODES_7[buf / 32] + buf % 32;
         }
 

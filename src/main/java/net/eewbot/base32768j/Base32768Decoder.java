@@ -107,11 +107,11 @@ public class Base32768Decoder {
             int bufCount = 0;
         };
         src.codePoints().forEachOrdered(codePoint -> {
-            Integer byteBase = TABLE.get(codePoint & ~32);
+            Integer byteBase = TABLE.get(codePoint & ~31);
             if (byteBase == null) throw new IllegalBase32768TextException(ref.srcIndex + 1, codePoint);
 
             if (codePoint <= SEVEN_BITS_CP_FINAL) {
-                if (ref.srcIndex == srcCodePointCount - 1) throw new IllegalBase32768TextException(codePoint);
+                if (ref.srcIndex != srcCodePointCount - 1) throw new IllegalBase32768TextException(codePoint);
                 ref.buf = (ref.buf << 7) + byteBase + codePoint % 32;
                 ref.bufCount += 7;
             } else {
@@ -123,12 +123,15 @@ public class Base32768Decoder {
 
             while (ref.bufCount >= 8) {
                 int offset = ref.bufCount - 8;
-                byte b = (byte) ((ref.buf & 0xFF << offset) >> offset);
-                ref.buf &= 0x3FFF >> 22 - offset;
+                byte b = (byte) (ref.buf >> offset);
+                ref.buf &= (1 << offset) - 1;
                 ref.bufCount -= 8;
                 bytes[ref.dstIndex++] = b;
             }
         });
+
+        if (ref.bufCount > 0 && ref.buf != (1 << ref.bufCount) - 1)
+            throw new IllegalBase32768TextException("Bad padding");
 
         return bytes;
     }

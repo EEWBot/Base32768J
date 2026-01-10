@@ -1,5 +1,9 @@
 package net.eewbot.base32768j;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 /**
  * This class consists exclusively of static methods for obtaining encoders and decoders for the Base32768 encoding
  * scheme.
@@ -24,5 +28,9 @@ public class Base32768 {
      */
     public static Base32768Decoder getDecoder() {
         return decoder;
+    }
+
+    public static void main(String[] args) throws IOException {
+        decoder.decode(Files.readAllBytes(Path.of("src/test/resources/pairs/caseDemo.txt")));
     }
 }
