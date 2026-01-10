@@ -49,9 +49,9 @@ public class Util {
             });
 
             if (text[0] == null) return;
-            consumer.accept(new TestCasePair(bin, text[0]));
+            consumer.accept(new TestCasePair(beforeExtension, bin, text[0]));
         }).toList();
     }
 
-    public record TestCasePair(File bin, File txt) {}
+    public record TestCasePair(String name, File bin, File txt) {}
 }

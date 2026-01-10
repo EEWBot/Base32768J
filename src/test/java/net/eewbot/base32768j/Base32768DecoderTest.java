@@ -2,6 +2,7 @@ package net.eewbot.base32768j;
 
 import net.eewbot.base32768j.exception.Base32768Exception;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -20,20 +21,24 @@ public class Base32768DecoderTest {
         Assertions.assertThrows(Base32768Exception.class, () -> Base32768.getDecoder().decode(testCase));
     }
 
-    static List<String> failCaseProvider() {
+    static List<Arguments> failCaseProvider() {
         File baseDirectory = new File("src/test/resources/bad/");
 
         File[] files = baseDirectory.listFiles();
         if (files == null) throw new IllegalStateException("No test resources available.");
 
-        List<String> testCases = Arrays.stream(files).<String>mapMulti((file, consumer) -> {
-            String name = file.getName();
-            int periodIndex = name.lastIndexOf('.');
+        List<Arguments> testCases = Arrays.stream(files).<Arguments>mapMulti((file, consumer) -> {
+            String fullName = file.getName();
+
+            int periodIndex = fullName.lastIndexOf('.');
             if (periodIndex <= 0) return;
-            if (!name.substring(periodIndex + 1).equalsIgnoreCase("txt")) return;
+
+            if (!fullName.substring(periodIndex + 1).equalsIgnoreCase("txt")) return;
+
+            String beforeExtension = fullName.substring(0, periodIndex);
 
             try {
-                consumer.accept(Files.readString(file.toPath()));
+                consumer.accept(Arguments.of(Named.of(beforeExtension, Files.readString(file.toPath()))));
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
@@ -45,9 +50,9 @@ public class Base32768DecoderTest {
 
     @ParameterizedTest
     @MethodSource("successCaseProvider")
-    void success(String testCase, byte[] expected) {
-        byte[] actual = Base32768.getDecoder().decode(testCase);
-        Assertions.assertArrayEquals(expected, actual);
+    void success(SuccessTestCase testCase) {
+        byte[] actual = Base32768.getDecoder().decode(testCase.text);
+        Assertions.assertArrayEquals(testCase.expected, actual);
     }
 
     static List<Arguments> successCaseProvider() throws IOException {
@@ -60,9 +65,11 @@ public class Base32768DecoderTest {
         for (Util.TestCasePair testCase : cases) {
             byte[] bytes = Files.readAllBytes(testCase.bin().toPath());
             String text = Files.readString(testCase.txt().toPath());
-            arguments.add(Arguments.of(text, bytes));
+            arguments.add(Arguments.of(Named.of(testCase.name(), new SuccessTestCase(text, bytes))));
         }
 
         return arguments;
     }
+
+    record SuccessTestCase(String text, byte[] expected) {}
 }
