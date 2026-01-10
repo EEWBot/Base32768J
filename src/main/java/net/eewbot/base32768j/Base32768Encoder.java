@@ -162,7 +162,7 @@ public class Base32768Encoder {
             }
 
             if (bufCount == 15) {
-                codePoints[i++] = CODES_15[buf / 32] + buf % 32;
+                codePoints[i++] = CODES_15[buf >> 5] | buf & 31;
                 buf = 0;
                 bufCount = 0;
             }
@@ -173,10 +173,10 @@ public class Base32768Encoder {
 
         if (bufCount >= 8) {
             buf |= 0x7F >> bufCount - 8;
-            codePoints[i] = CODES_15[buf / 32] + buf % 32;
+            codePoints[i] = CODES_15[buf >> 5] | buf & 31;
         } else if (bufCount > 0) {
             buf = buf >> 8 | 0x3F >> bufCount - 1;
-            codePoints[i] = CODES_7[buf / 32] + buf % 32;
+            codePoints[i] = CODES_7[buf >> 5] | buf & 31;
         }
 
         return new String(codePoints, 0, codePoints.length);

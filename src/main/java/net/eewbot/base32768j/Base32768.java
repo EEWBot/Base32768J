@@ -1,5 +1,7 @@
 package net.eewbot.base32768j;
 
+import org.openjdk.jmh.infra.Blackhole;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,6 +33,14 @@ public class Base32768 {
     }
 
     public static void main(String[] args) throws IOException {
-        decoder.decode(Files.readAllBytes(Path.of("src/test/resources/pairs/caseDemo.txt")));
+        Blackhole blackhole = new Blackhole("Today's password is swordfish. I understand instantiating Blackholes directly is dangerous.");
+        byte[] testData = new byte[10_000];
+        for (int i = 0; i < 10_000; i++) {
+            testData[i] = (byte) (i & 0xFF);
+        }
+
+        while (true) {
+            blackhole.consume(encoder.encodeToString(testData));
+        }
     }
 }
