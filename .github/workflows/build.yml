@@ -1,0 +1,63 @@
+name: Build
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/build.yml'
+      - 'src/**'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - '*.gradle.kts'
+
+  push:
+    branches:
+      - master
+
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: |-
+          Publish to GitHub Packages
+          (The master branch always publish regardless this option.)
+        type: boolean
+        required: true
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  build:
+    name: Build library
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          cache: gradle
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v5
+      - name: Add permission to Gradle wrapper
+        run: chmod +x gradlew
+      - name: Do build
+        run: ./gradlew build
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          path: ./build/libs/*
+          retention-days: 30
+      - name: Publish
+        if: ${{ github.ref == 'refs/heads/master' || inputs.publish }}
+        run: ./gradlew publish jreleaserDeploy --stacktrace
+        env:
+          GPR_KEY: ${{ secrets.GITHUB_TOKEN }}
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
+          SIGNING_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          SIGNING_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.GPG_PASSPHRASE }}
