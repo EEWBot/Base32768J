@@ -9,7 +9,7 @@ import java.util.concurrent.TimeUnit;
 public class Benchmark {
     private static final Base32768Encoder encoder = Base32768.getEncoder();
 //    private static final Base32768Decoder decoder = Base32768.getDecoder();
-    private static byte[] oneByteArray;
+//    private static byte[] oneByteArray;
     private static byte[] tenKilobytesArray;
     private static byte[] oneMegabytesArray;
 //    private static String oneByteString;
@@ -18,7 +18,7 @@ public class Benchmark {
 
     @Setup
     public void setup() {
-        oneByteArray = new byte[]{127};
+//        oneByteArray = new byte[]{127};
         tenKilobytesArray = new byte[10_000];
         oneMegabytesArray = new byte[1_000_000];
         for (int i = 0; i < 1_000_000; i++) {
@@ -30,12 +30,12 @@ public class Benchmark {
 //        oneMegabytesString = encoder.encodeToString(oneMegabytesArray);
     }
 
-    @org.openjdk.jmh.annotations.Benchmark
-    @BenchmarkMode(Mode.Throughput)
-    @OutputTimeUnit(TimeUnit.SECONDS)
-    public void encoderOneByte(Blackhole blackhole) {
-        blackhole.consume(encoder.encodeToString(oneByteArray));
-    }
+//    @org.openjdk.jmh.annotations.Benchmark
+//    @BenchmarkMode(Mode.Throughput)
+//    @OutputTimeUnit(TimeUnit.SECONDS)
+//    public void encoderOneByte(Blackhole blackhole) {
+//        blackhole.consume(encoder.encodeToString(oneByteArray));
+//    }
 
     @org.openjdk.jmh.annotations.Benchmark
     @BenchmarkMode(Mode.Throughput)

@@ -3,7 +3,10 @@ package net.eewbot.base32768j;
 import net.eewbot.base32768j.exception.BufferTooSmallException;
 
 import java.io.OutputStream;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -84,7 +87,9 @@ public class Base32768Encoder {
         0xa2a0, 0xa2c0, 0xa2e0, 0xa300, 0xa320, 0xa340, 0xa360, 0xa380, 0xa3a0, 0xa3c0, 0xa3e0, 0xa400, 0xa420, 0xa440, 0xa460, 0xa4a0,
         0xa500, 0xa520, 0xa540, 0xa560, 0xa580, 0xa5a0, 0xa5c0, 0xa5e0, 0xa640, 0xa6a0, 0xa6c0, 0xa700, 0xa720, 0xa740, 0xa780, 0xa840,
     };
-    // endregion a
+    // endregion CODES_15
+
+    private static final VarHandle LONG_BE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
 
     /**
      * Encodes all bytes from the specified byte array into a newly-allocated byte array using the {@link Base32768}
@@ -145,33 +150,22 @@ public class Base32768Encoder {
         int oi = 0;
         int i = 0;
 
+        // Past Path: 15バイト -> 8文字
         final int fastLimit = srcLen - 14;
         while (i < fastLimit) {
-            long hi = ((long)(src[i]      & 0xFF) << 56)
-                    | ((long)(src[i + 1]  & 0xFF) << 48)
-                    | ((long)(src[i + 2]  & 0xFF) << 40)
-                    | ((long)(src[i + 3]  & 0xFF) << 32)
-                    | ((long)(src[i + 4]  & 0xFF) << 24)
-                    | ((long)(src[i + 5]  & 0xFF) << 16)
-                    | ((long)(src[i + 6]  & 0xFF) << 8)
-                    |  (long)(src[i + 7]  & 0xFF);
+            // 120ビットを2つのlongに読み込み
+            final long hi = (long) LONG_BE.get(src, i);
+            final long lo = ((long) LONG_BE.get(src, i + 7)) & 0x00FF_FFFF_FFFF_FFFFL;
 
-            long lo = ((long)(src[i + 8]  & 0xFF) << 48)
-                    | ((long)(src[i + 9]  & 0xFF) << 40)
-                    | ((long)(src[i + 10] & 0xFF) << 32)
-                    | ((long)(src[i + 11] & 0xFF) << 24)
-                    | ((long)(src[i + 12] & 0xFF) << 16)
-                    | ((long)(src[i + 13] & 0xFF) << 8)
-                    |  (long)(src[i + 14] & 0xFF);
-
-            int v0 = (int)(hi >>> 49) & 0x7FFF;
-            int v1 = (int)(hi >>> 34) & 0x7FFF;
-            int v2 = (int)(hi >>> 19) & 0x7FFF;
-            int v3 = (int)(hi >>> 4)  & 0x7FFF;
-            int v4 = (int)(((hi & 0xF) << 11) | (lo >>> 45)) & 0x7FFF;
-            int v5 = (int)(lo >>> 30) & 0x7FFF;
-            int v6 = (int)(lo >>> 15) & 0x7FFF;
-            int v7 = (int) lo         & 0x7FFF;
+            // 15ビットずつ8回抽出
+            final int v0 = (int)(hi >>> 49) & 0x7FFF;
+            final int v1 = (int)(hi >>> 34) & 0x7FFF;
+            final int v2 = (int)(hi >>> 19) & 0x7FFF;
+            final int v3 = (int)(hi >>> 4)  & 0x7FFF;
+            final int v4 = (int)(((hi & 0xF) << 11) | (lo >>> 45)) & 0x7FFF;
+            final int v5 = (int)(lo >>> 30) & 0x7FFF;
+            final int v6 = (int)(lo >>> 15) & 0x7FFF;
+            final int v7 = (int) lo         & 0x7FFF;
 
             out[oi]     = (char)(codes15[v0 >>> 5] + (v0 & 31));
             out[oi + 1] = (char)(codes15[v1 >>> 5] + (v1 & 31));
@@ -186,6 +180,7 @@ public class Base32768Encoder {
             oi += 8;
         }
 
+        // 残りバイトの処理
         long acc = 0L;
         int bitCount = 0;
 
@@ -201,6 +196,7 @@ public class Base32768Encoder {
             }
         }
 
+        // 端数処理
         if (bitCount >= 8) {
             int v = (int)(acc << (15 - bitCount));
             v |= 0x7F >>> (bitCount - 8);
