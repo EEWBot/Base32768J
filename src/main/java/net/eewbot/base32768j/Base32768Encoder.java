@@ -169,11 +169,11 @@ public class Base32768Encoder {
             final long lo = ((long) LONG_BE.get(src, i + 7)) & 0x00FF_FFFF_FFFF_FFFFL;
 
             // 15ビットずつ8回抽出
-            out[oi]     = lut15[(int)(hi >>> 49) & 0x7FFF];
+            out[oi]     = lut15[(int)(hi >>> 49)];
             out[oi + 1] = lut15[(int)(hi >>> 34) & 0x7FFF];
             out[oi + 2] = lut15[(int)(hi >>> 19) & 0x7FFF];
             out[oi + 3] = lut15[(int)(hi >>> 4)  & 0x7FFF];
-            out[oi + 4] = lut15[(int)(((hi & 0xF) << 11) | (lo >>> 45)) & 0x7FFF];
+            out[oi + 4] = lut15[(int)(((hi & 0xFL) << 11) | ((lo >>> 45) & 0x7FFL))];
             out[oi + 5] = lut15[(int)(lo >>> 30) & 0x7FFF];
             out[oi + 6] = lut15[(int)(lo >>> 15) & 0x7FFF];
             out[oi + 7] = lut15[(int) lo         & 0x7FFF];
