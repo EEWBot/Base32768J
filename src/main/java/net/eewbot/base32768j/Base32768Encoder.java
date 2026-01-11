@@ -136,6 +136,9 @@ public class Base32768Encoder {
     public String encodeToString(byte[] src) {
         if (src.length == 0) return "";
 
+        final int[] codes15 = CODES_15;
+        final int[] codes7 = CODES_7;
+
         final int outLen = (int) ((((long) src.length) << 3) + 14L) / 15;
         final char[] out = new char[outLen];
         int oi = 0;
@@ -165,7 +168,7 @@ public class Base32768Encoder {
 
             if (bufCount == 15) {
                 final int v = buf;
-                out[oi++] = (char) (CODES_15[v >>> 5] + (v & 31));
+                out[oi++] = (char) (codes15[v >>> 5] + (v & 31));
                 buf = 0;
                 bufCount = 0;
             }
@@ -177,11 +180,11 @@ public class Base32768Encoder {
         if (bufCount >= 8) {
             buf |= 0x7F >> (bufCount - 8);
             final int v = buf;
-            out[oi++] = (char) (CODES_15[v >>> 5] + (v & 31));
+            out[oi] = (char) (codes15[v >>> 5] + (v & 31));
         } else if (bufCount > 0) {
             buf = (buf >>> 8) | (0x3F >>> (bufCount - 1));
             final int v = buf;
-            out[oi++] = (char) (CODES_7[v >>> 5] + (v & 31));
+            out[oi] = (char) (codes7[v >>> 5] + (v & 31));
         }
         return new String(out);
     }
