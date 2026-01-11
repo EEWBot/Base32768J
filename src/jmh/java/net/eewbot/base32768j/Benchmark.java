@@ -9,13 +9,13 @@ import java.util.concurrent.TimeUnit;
 @State(Scope.Benchmark)
 public class Benchmark {
     private static final Base32768Encoder encoder = Base32768.getEncoder();
-//    private static final Base32768Decoder decoder = Base32768.getDecoder();
+    private static final Base32768Decoder decoder = Base32768.getDecoder();
 //    private static byte[] oneByteArray;
     private static byte[] tenKilobytesArray;
     private static byte[] oneMegabytesArray;
 //    private static String oneByteString;
-//    private static String tenKilobytesString;
-//    private static String oneMegabytesString;
+    private static String tenKilobytesString;
+    private static String oneMegabytesString;
 
     @Param({"32768"})
     public long seed;
@@ -28,8 +28,8 @@ public class Benchmark {
         fillRandom(tenKilobytesArray, seed ^ 0x9E3779B97F4A7C15L);
         fillRandom(oneMegabytesArray, seed);
 //        oneByteString = encoder.encodeToString(oneByteArray);
-//        tenKilobytesString = encoder.encodeToString(tenKilobytesArray);
-//        oneMegabytesString = encoder.encodeToString(oneMegabytesArray);
+        tenKilobytesString = encoder.encodeToString(tenKilobytesArray);
+        oneMegabytesString = encoder.encodeToString(oneMegabytesArray);
     }
 
     private static void fillRandom(byte[] dst, long seed) {
@@ -61,19 +61,19 @@ public class Benchmark {
 //        blackhole.consume(encoder.encodeToString(oneByteArray));
 //    }
 
-    @org.openjdk.jmh.annotations.Benchmark
-    @BenchmarkMode(Mode.Throughput)
-    @OutputTimeUnit(TimeUnit.SECONDS)
-    public void encoderTenKilobytes(Blackhole blackhole) {
-        blackhole.consume(encoder.encodeToString(tenKilobytesArray));
-    }
-
-    @org.openjdk.jmh.annotations.Benchmark
-    @BenchmarkMode(Mode.Throughput)
-    @OutputTimeUnit(TimeUnit.SECONDS)
-    public void encoderOneMegabytes(Blackhole blackhole) {
-        blackhole.consume(encoder.encodeToString(oneMegabytesArray));
-    }
+//    @org.openjdk.jmh.annotations.Benchmark
+//    @BenchmarkMode(Mode.Throughput)
+//    @OutputTimeUnit(TimeUnit.SECONDS)
+//    public void encoderTenKilobytes(Blackhole blackhole) {
+//        blackhole.consume(encoder.encodeToString(tenKilobytesArray));
+//    }
+//
+//    @org.openjdk.jmh.annotations.Benchmark
+//    @BenchmarkMode(Mode.Throughput)
+//    @OutputTimeUnit(TimeUnit.SECONDS)
+//    public void encoderOneMegabytes(Blackhole blackhole) {
+//        blackhole.consume(encoder.encodeToString(oneMegabytesArray));
+//    }
 
 //    @org.openjdk.jmh.annotations.Benchmark
 //    @BenchmarkMode(Mode.Throughput)
@@ -81,18 +81,18 @@ public class Benchmark {
 //    public void decoderOneByte(Blackhole blackhole) {
 //        blackhole.consume(decoder.decode(oneByteString));
 //    }
-//
-//    @org.openjdk.jmh.annotations.Benchmark
-//    @BenchmarkMode(Mode.Throughput)
-//    @OutputTimeUnit(TimeUnit.SECONDS)
-//    public void decoderTenKilobytes(Blackhole blackhole) {
-//        blackhole.consume(decoder.decode(tenKilobytesString));
-//    }
-//
-//    @org.openjdk.jmh.annotations.Benchmark
-//    @BenchmarkMode(Mode.Throughput)
-//    @OutputTimeUnit(TimeUnit.SECONDS)
-//    public void decoderOneMegabytes(Blackhole blackhole) {
-//        blackhole.consume(decoder.decode(oneMegabytesString));
-//    }
+
+    @org.openjdk.jmh.annotations.Benchmark
+    @BenchmarkMode(Mode.Throughput)
+    @OutputTimeUnit(TimeUnit.SECONDS)
+    public void decoderTenKilobytes(Blackhole blackhole) {
+        blackhole.consume(decoder.decode(tenKilobytesString));
+    }
+
+    @org.openjdk.jmh.annotations.Benchmark
+    @BenchmarkMode(Mode.Throughput)
+    @OutputTimeUnit(TimeUnit.SECONDS)
+    public void decoderOneMegabytes(Blackhole blackhole) {
+        blackhole.consume(decoder.decode(oneMegabytesString));
+    }
 }
