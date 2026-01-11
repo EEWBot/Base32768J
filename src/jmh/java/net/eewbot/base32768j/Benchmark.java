@@ -3,6 +3,7 @@ package net.eewbot.base32768j;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 
+import java.util.SplittableRandom;
 import java.util.concurrent.TimeUnit;
 
 @State(Scope.Benchmark)
@@ -16,18 +17,41 @@ public class Benchmark {
 //    private static String tenKilobytesString;
 //    private static String oneMegabytesString;
 
-    @Setup
+    @Param({"32768"})
+    public long seed;
+
+    @Setup(Level.Trial)
     public void setup() {
 //        oneByteArray = new byte[]{127};
         tenKilobytesArray = new byte[10_000];
         oneMegabytesArray = new byte[1_000_000];
-        for (int i = 0; i < 1_000_000; i++) {
-            tenKilobytesArray[i % 100] = (byte) (i & 0xFF);
-            oneMegabytesArray[i] = (byte) (i & 0xFF);
-        }
+        fillRandom(tenKilobytesArray, seed ^ 0x9E3779B97F4A7C15L);
+        fillRandom(oneMegabytesArray, seed);
 //        oneByteString = encoder.encodeToString(oneByteArray);
 //        tenKilobytesString = encoder.encodeToString(tenKilobytesArray);
 //        oneMegabytesString = encoder.encodeToString(oneMegabytesArray);
+    }
+
+    private static void fillRandom(byte[] dst, long seed) {
+        SplittableRandom r = new SplittableRandom(seed);
+        int i = 0;
+        int n = dst.length;
+
+        while (i + 4 <= n) {
+            int x = r.nextInt();
+            dst[i]     = (byte) x;
+            dst[i + 1] = (byte) (x >>> 8);
+            dst[i + 2] = (byte) (x >>> 16);
+            dst[i + 3] = (byte) (x >>> 24);
+            i += 4;
+        }
+        if (i < n) {
+            int x = r.nextInt();
+            for (; i < n; i++) {
+                dst[i] = (byte) x;
+                x >>>= 8;
+            }
+        }
     }
 
 //    @org.openjdk.jmh.annotations.Benchmark
