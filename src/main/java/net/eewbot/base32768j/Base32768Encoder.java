@@ -138,52 +138,36 @@ public class Base32768Encoder {
 
         final int[] codes15 = CODES_15;
         final int[] codes7 = CODES_7;
+        final int srcLen = src.length;
 
-        final int outLen = (int) ((((long) src.length) << 3) + 14L) / 15;
+        final int outLen = (int) (((srcLen * 8L) + 14L) / 15);
         final char[] out = new char[outLen];
         int oi = 0;
 
-        int buf = 0; // 左詰め
-        int bufCount = 0;
-        int remaining = 0; // 右詰め
-        int remainingCount = 0;
+        long acc = 0L;
+        int bitCount = 0;
 
-        for (int i = 0; i < src.length; i++) {
-            remaining = (remaining << 8) | (src[i] & 0xFF);
-            remainingCount += 8;
+        for (int i = 0, n = src.length; i < n; i++) {
+            acc = (acc << 8) | (src[i] & 0xFFL);
+            bitCount += 8;
 
-            if (bufCount < 7) {
-                buf |= remaining << 15 - bufCount - remainingCount;
-                bufCount += remainingCount;
-                remaining = 0;
-                remainingCount = 0;
-            } else {
-                int moveCount = 15 - bufCount;
-                int remainingCountAfter = remainingCount - moveCount;
-                buf |= remaining >> remainingCountAfter;
-                bufCount += moveCount;
-                remaining &= (1 << remainingCountAfter) - 1;
-                remainingCount = remainingCountAfter;
-            }
-
-            if (bufCount == 15) {
-                final int v = buf;
+            if (bitCount >= 15) {
+                bitCount -= 15;
+                final int v = (int) ((acc >>> bitCount) & 0x7FFFL); // 15bit
                 out[oi++] = (char) (codes15[v >>> 5] + (v & 31));
-                buf = 0;
-                bufCount = 0;
+                acc &= (1L << bitCount) - 1L;
             }
         }
 
-        buf |= remaining << 15 - bufCount - remainingCount;
-        bufCount += remainingCount;
-
-        if (bufCount >= 8) {
-            buf |= 0x7F >>> (bufCount - 8);
-            final int v = buf;
+        if (bitCount >= 8) {
+            final int shift = 15 - bitCount;
+            int v = (int) (acc << shift);
+            v |= 0x7F >>> (bitCount - 8);
             out[oi++] = (char) (codes15[v >>> 5] + (v & 31));
-        } else if (bufCount > 0) {
-            buf = (buf >>> 8) | (0x3F >>> (bufCount - 1));
-            final int v = buf;
+        } else if (bitCount > 0) {
+            final int shift = 7 - bitCount;
+            int v = (int) (acc << shift);
+            v |= 0x3F >>> (bitCount - 1);
             out[oi++] = (char) (codes7[v >>> 5] + (v & 31));
         }
         return new String(out);
