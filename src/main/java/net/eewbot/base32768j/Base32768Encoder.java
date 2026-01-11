@@ -90,13 +90,15 @@ public class Base32768Encoder {
     // endregion CODES_15
 
     private static final VarHandle LONG_BE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
-    private static final char[] CODES_15_CHAR = new char[1 << 15];
+    private static final char[] CODES15_CHAR = new char[1 << 15];
+    private static final char[] CODES7_CHAR  = new char[1 << 7];
 
     static {
         for (int v = 0; v < (1 << 15); v++) {
-            int base = CODES_15[v >>> 5];
-            int cp = base + (v & 31);
-            CODES_15_CHAR[v] = (char) cp;
+            CODES15_CHAR[v] = (char) (CODES_15[v >>> 5] + (v & 31));
+        }
+        for (int v = 0; v < (1 << 7); v++) {
+            CODES7_CHAR[v] = (char) (CODES_7[v >>> 5] + (v & 31));
         }
     }
 
@@ -150,9 +152,8 @@ public class Base32768Encoder {
     public String encodeToString(byte[] src) {
         if (src.length == 0) return "";
 
-        final char[] codes15 = CODES_15;
-        final char[] codes15Char = CODES_15_CHAR;
-        final char[] codes7 = CODES_7;
+        final char[] lut15 = CODES15_CHAR;
+        final char[] lut7  = CODES7_CHAR;
         final int srcLen = src.length;
 
         final int outLen = (int) (((srcLen * 8L) + 14L) / 15);
@@ -168,24 +169,14 @@ public class Base32768Encoder {
             final long lo = ((long) LONG_BE.get(src, i + 7)) & 0x00FF_FFFF_FFFF_FFFFL;
 
             // 15ビットずつ8回抽出
-            final int v0 = (int)(hi >>> 49) & 0x7FFF;
-            final int v1 = (int)(hi >>> 34) & 0x7FFF;
-            final int v2 = (int)(hi >>> 19) & 0x7FFF;
-            final int v3 = (int)(hi >>> 4)  & 0x7FFF;
-            final int v4 = (int)(((hi & 0xF) << 11) | (lo >>> 45)) & 0x7FFF;
-            final int v5 = (int)(lo >>> 30) & 0x7FFF;
-            final int v6 = (int)(lo >>> 15) & 0x7FFF;
-            final int v7 = (int) lo         & 0x7FFF;
-
-//            out[oi] = (char)(codes15[v0 >>> 5] + (v0 & 31));
-            out[oi]     = codes15Char[v0];
-            out[oi + 1] = codes15Char[v1];
-            out[oi + 2] = codes15Char[v2];
-            out[oi + 3] = codes15Char[v3];
-            out[oi + 4] = codes15Char[v4];
-            out[oi + 5] = codes15Char[v5];
-            out[oi + 6] = codes15Char[v6];
-            out[oi + 7] = codes15Char[v7];
+            out[oi]     = lut15[(int)(hi >>> 49) & 0x7FFF];
+            out[oi + 1] = lut15[(int)(hi >>> 34) & 0x7FFF];
+            out[oi + 2] = lut15[(int)(hi >>> 19) & 0x7FFF];
+            out[oi + 3] = lut15[(int)(hi >>> 4)  & 0x7FFF];
+            out[oi + 4] = lut15[(int)(((hi & 0xF) << 11) | (lo >>> 45)) & 0x7FFF];
+            out[oi + 5] = lut15[(int)(lo >>> 30) & 0x7FFF];
+            out[oi + 6] = lut15[(int)(lo >>> 15) & 0x7FFF];
+            out[oi + 7] = lut15[(int) lo         & 0x7FFF];
 
             i += 15;
             oi += 8;
@@ -201,8 +192,7 @@ public class Base32768Encoder {
 
             if (bitCount >= 15) {
                 bitCount -= 15;
-                final int v = (int)((acc >>> bitCount) & 0x7FFFL);
-                out[oi++] = (char)(codes15[v >>> 5] + (v & 31));
+                out[oi++] = lut15[(int)((acc >>> bitCount) & 0x7FFF)];
                 acc &= (1L << bitCount) - 1L;
             }
         }
@@ -211,11 +201,11 @@ public class Base32768Encoder {
         if (bitCount >= 8) {
             int v = (int)(acc << (15 - bitCount));
             v |= 0x7F >>> (bitCount - 8);
-            out[oi++] = (char) (codes15[v >>> 5] + (v & 31));
+            out[oi++] = lut15[v];
         } else if (bitCount > 0) {
             int v = (int)(acc << (7 - bitCount));
             v |= 0x3F >>> (bitCount - 1);
-            out[oi++] = (char) (codes7[v >>> 5] + (v & 31));
+            out[oi++] = lut7[v];
         }
 
         return new String(out);
