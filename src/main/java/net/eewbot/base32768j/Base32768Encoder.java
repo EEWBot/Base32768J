@@ -152,7 +152,7 @@ public class Base32768Encoder {
             remaining = (remaining << 8) | (src[i] & 0xFF);
             remainingCount += 8;
 
-            if (15 - bufCount >= remainingCount) {
+            if (bufCount < 7) {
                 buf |= remaining << 15 - bufCount - remainingCount;
                 bufCount += remainingCount;
                 remaining = 0;
@@ -178,13 +178,13 @@ public class Base32768Encoder {
         bufCount += remainingCount;
 
         if (bufCount >= 8) {
-            buf |= 0x7F >> (bufCount - 8);
+            buf |= 0x7F >>> (bufCount - 8);
             final int v = buf;
-            out[oi] = (char) (codes15[v >>> 5] + (v & 31));
+            out[oi++] = (char) (codes15[v >>> 5] + (v & 31));
         } else if (bufCount > 0) {
             buf = (buf >>> 8) | (0x3F >>> (bufCount - 1));
             final int v = buf;
-            out[oi] = (char) (codes7[v >>> 5] + (v & 31));
+            out[oi++] = (char) (codes7[v >>> 5] + (v & 31));
         }
         return new String(out);
     }
