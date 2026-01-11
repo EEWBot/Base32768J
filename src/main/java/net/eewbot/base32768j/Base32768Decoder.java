@@ -13,33 +13,57 @@ public class Base32768Decoder {
     Base32768Decoder() {}
 
     private static final int SEVEN_BITS_CP_FINAL = 0x29F;
-    private static final int INVALID = 0xFFFF;
-    private static final short[] DECODE_VALUE = new short[1 << 16];
+    private static final char INVALID = 0xFFFF;
+
+    // 非末尾：15bit 文字のみ有効（7bit と surrogate は INVALID）
+    private static final char[] DECODE15_ONLY = new char[1 << 16];
+
+    // 末尾：7bit/15bit 両方有効（surrogate は INVALID）
+    private static final char[] DECODE_LAST = new char[1 << 16];
+
+    // 末尾のビット長：7 / 15 / 0(無効)
+    private static final byte[] LAST_BITS = new byte[1 << 16];
+
     private static final long[] MASK64 = new long[65];
 
     static {
-        java.util.Arrays.fill(DECODE_VALUE, (short) INVALID);
-
-        // 7-bit blocks: 4 blocks × 32 chars = 128 chars
-        for (int i = 0; i < Base32768Encoder.CODES_7.length; i++) {
-            int base = i << 5;              // i*32
-            int cp0  = Base32768Encoder.CODES_7[i]; // block start
-            for (int lo = 0; lo < 32; lo++) {
-                DECODE_VALUE[cp0 + lo] = (short) (base + lo);
-            }
-        }
-
-        // 15-bit blocks: 1024 blocks × 32 chars = 32768 chars
-        for (int i = 0; i < Base32768Encoder.CODES_15.length; i++) {
-            int base = i << 5;              // i*32
-            int cp0  = Base32768Encoder.CODES_15[i];
-            for (int lo = 0; lo < 32; lo++) {
-                DECODE_VALUE[cp0 + lo] = (short) (base + lo);
-            }
-        }
-
         for (int i = 0; i <= 64; i++) {
             MASK64[i] = (i == 64) ? -1L : ((1L << i) - 1L);
+        }
+
+        java.util.Arrays.fill(DECODE15_ONLY, INVALID);
+        java.util.Arrays.fill(DECODE_LAST, INVALID);
+        // LAST_BITS はデフォルト 0
+
+        // 7-bit blocks（末尾のみ有効）
+        for (int i = 0; i < Base32768Encoder.CODES_7.length; i++) {
+            int base = i << 5;
+            int cp0  = Base32768Encoder.CODES_7[i];
+            for (int lo = 0; lo < 32; lo++) {
+                int cp = cp0 + lo;
+                DECODE_LAST[cp] = (char) (base + lo);
+                LAST_BITS[cp]   = 7;
+            }
+        }
+
+        // 15-bit blocks（非末尾/末尾とも有効）
+        for (int i = 0; i < Base32768Encoder.CODES_15.length; i++) {
+            int base = i << 5;
+            int cp0  = Base32768Encoder.CODES_15[i];
+            for (int lo = 0; lo < 32; lo++) {
+                int cp = cp0 + lo;
+                char v = (char) (base + lo);
+                DECODE15_ONLY[cp] = v;
+                DECODE_LAST[cp]   = v;
+                LAST_BITS[cp]     = 15;
+            }
+        }
+
+        // surrogate を明示的に無効化
+        for (int cp = 0xD800; cp <= 0xDFFF; cp++) {
+            DECODE15_ONLY[cp] = INVALID;
+            DECODE_LAST[cp]   = INVALID;
+            LAST_BITS[cp]     = 0;
         }
     }
 
@@ -116,32 +140,25 @@ public class Base32768Decoder {
         if (n == 0) return new byte[0];
 
         final char last = src.charAt(n - 1);
-        // surrogate のみ弾く（Base32768はBMP想定）
-        if (last >= 0xD800 && last <= 0xDFFF) {
+        final int lastBits = LAST_BITS[last] & 0xFF;
+        if (lastBits == 0) {
+            // last が無効（未知 or surrogate）
             throw new IllegalBase32768TextException(n, last);
         }
 
-        final boolean lastIs7 = last <= SEVEN_BITS_CP_FINAL;
-        final int outLen = (lastIs7 ? (n - 1) * 15 + 7 : n * 15) >>> 3;
+        final int outLen = ((n - 1) * 15 + lastBits) >>> 3;
         final byte[] out = new byte[outLen];
 
         int oi = 0;
         long acc = 0L;
         int bitCount = 0;
 
-        // 末尾以外は「必ず15bit文字」であるべき（分岐を消す）
         final int end = n - 1;
+
+        // 非末尾：15bit のみ
         for (int si = 0; si < end; si++) {
             final char ch = src.charAt(si);
-            if (ch >= 0xD800 && ch <= 0xDFFF) {
-                throw new IllegalBase32768TextException(si + 1, ch);
-            }
-            if (ch <= SEVEN_BITS_CP_FINAL) {
-                // 7bitは最後のみ許可
-                throw new IllegalBase32768TextException(ch);
-            }
-
-            final int v = DECODE_VALUE[ch] & 0xFFFF;
+            final int v = DECODE15_ONLY[ch];
             if (v == INVALID) {
                 throw new IllegalBase32768TextException(si + 1, ch);
             }
@@ -149,7 +166,6 @@ public class Base32768Decoder {
             acc = (acc << 15) | v;
             bitCount += 15;
 
-            // 最大3回吐ける（15bit追加なので while を展開）
             bitCount -= 8;
             out[oi++] = (byte) (acc >>> bitCount);
             if (bitCount >= 8) {
@@ -159,23 +175,15 @@ public class Base32768Decoder {
             acc &= MASK64[bitCount];
         }
 
-        // 最後の1文字
+        // 末尾：7 or 15
         {
-            final char ch = last;
-            final int v = DECODE_VALUE[ch] & 0xFFFF;
-            if (v == INVALID) {
-                throw new IllegalBase32768TextException(n, ch);
-            }
+            final int v = DECODE_LAST[last];
+            // lastBits!=0 なので通常 INVALID ではないが念のため
+            if (v == INVALID) throw new IllegalBase32768TextException(n, last);
 
-            if (lastIs7) {
-                acc = (acc << 7) | v;
-                bitCount += 7;
-            } else {
-                acc = (acc << 15) | v;
-                bitCount += 15;
-            }
+            acc = (acc << lastBits) | v;
+            bitCount += lastBits;
 
-            // ここも最大3回（ただし7bitなら最大1回）
             if (bitCount >= 8) {
                 bitCount -= 8;
                 out[oi++] = (byte) (acc >>> bitCount);
@@ -191,7 +199,6 @@ public class Base32768Decoder {
             }
         }
 
-        // padding check
         if (bitCount > 0 && acc != MASK64[bitCount]) {
             throw new IllegalBase32768TextException("Bad padding");
         }
