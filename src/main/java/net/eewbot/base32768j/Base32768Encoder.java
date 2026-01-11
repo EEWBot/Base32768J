@@ -143,33 +143,74 @@ public class Base32768Encoder {
         final int outLen = (int) (((srcLen * 8L) + 14L) / 15);
         final char[] out = new char[outLen];
         int oi = 0;
+        int i = 0;
+
+        final int fastLimit = srcLen - 14;
+        while (i < fastLimit) {
+            long hi = ((long)(src[i]      & 0xFF) << 56)
+                    | ((long)(src[i + 1]  & 0xFF) << 48)
+                    | ((long)(src[i + 2]  & 0xFF) << 40)
+                    | ((long)(src[i + 3]  & 0xFF) << 32)
+                    | ((long)(src[i + 4]  & 0xFF) << 24)
+                    | ((long)(src[i + 5]  & 0xFF) << 16)
+                    | ((long)(src[i + 6]  & 0xFF) << 8)
+                    |  (long)(src[i + 7]  & 0xFF);
+
+            long lo = ((long)(src[i + 8]  & 0xFF) << 48)
+                    | ((long)(src[i + 9]  & 0xFF) << 40)
+                    | ((long)(src[i + 10] & 0xFF) << 32)
+                    | ((long)(src[i + 11] & 0xFF) << 24)
+                    | ((long)(src[i + 12] & 0xFF) << 16)
+                    | ((long)(src[i + 13] & 0xFF) << 8)
+                    |  (long)(src[i + 14] & 0xFF);
+
+            int v0 = (int)(hi >>> 49) & 0x7FFF;
+            int v1 = (int)(hi >>> 34) & 0x7FFF;
+            int v2 = (int)(hi >>> 19) & 0x7FFF;
+            int v3 = (int)(hi >>> 4)  & 0x7FFF;
+            int v4 = (int)(((hi & 0xF) << 11) | (lo >>> 45)) & 0x7FFF;
+            int v5 = (int)(lo >>> 30) & 0x7FFF;
+            int v6 = (int)(lo >>> 15) & 0x7FFF;
+            int v7 = (int) lo         & 0x7FFF;
+
+            out[oi]     = (char)(codes15[v0 >>> 5] + (v0 & 31));
+            out[oi + 1] = (char)(codes15[v1 >>> 5] + (v1 & 31));
+            out[oi + 2] = (char)(codes15[v2 >>> 5] + (v2 & 31));
+            out[oi + 3] = (char)(codes15[v3 >>> 5] + (v3 & 31));
+            out[oi + 4] = (char)(codes15[v4 >>> 5] + (v4 & 31));
+            out[oi + 5] = (char)(codes15[v5 >>> 5] + (v5 & 31));
+            out[oi + 6] = (char)(codes15[v6 >>> 5] + (v6 & 31));
+            out[oi + 7] = (char)(codes15[v7 >>> 5] + (v7 & 31));
+
+            i += 15;
+            oi += 8;
+        }
 
         long acc = 0L;
         int bitCount = 0;
 
-        for (int i = 0, n = src.length; i < n; i++) {
-            acc = (acc << 8) | (src[i] & 0xFFL);
+        while (i < srcLen) {
+            acc = (acc << 8) | (src[i++] & 0xFFL);
             bitCount += 8;
 
             if (bitCount >= 15) {
                 bitCount -= 15;
-                final int v = (int) ((acc >>> bitCount) & 0x7FFFL); // 15bit
-                out[oi++] = (char) (codes15[v >>> 5] + (v & 31));
+                final int v = (int)((acc >>> bitCount) & 0x7FFFL);
+                out[oi++] = (char)(codes15[v >>> 5] + (v & 31));
                 acc &= (1L << bitCount) - 1L;
             }
         }
 
         if (bitCount >= 8) {
-            final int shift = 15 - bitCount;
-            int v = (int) (acc << shift);
+            int v = (int)(acc << (15 - bitCount));
             v |= 0x7F >>> (bitCount - 8);
             out[oi++] = (char) (codes15[v >>> 5] + (v & 31));
         } else if (bitCount > 0) {
-            final int shift = 7 - bitCount;
-            int v = (int) (acc << shift);
+            int v = (int)(acc << (7 - bitCount));
             v |= 0x3F >>> (bitCount - 1);
             out[oi++] = (char) (codes7[v >>> 5] + (v & 31));
         }
+
         return new String(out);
     }
 
