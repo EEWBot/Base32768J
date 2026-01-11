@@ -13,7 +13,7 @@ public class Base32768Decoder {
     Base32768Decoder() {}
 
     private static final int SEVEN_BITS_CP_FINAL = 0x29F;
-    private static final Map<Integer, Integer> TABLE = new HashMap<>() {
+    private static final Map<Character, Integer> TABLE = new HashMap<>() {
         {
             for (int i = 0; i < Base32768Encoder.CODES_7.length; i++) {
                 put(Base32768Encoder.CODES_7[i], i * 32);
@@ -107,7 +107,7 @@ public class Base32768Decoder {
             int bufCount = 0;
         };
         src.codePoints().forEachOrdered(codePoint -> {
-            Integer byteBase = TABLE.get(codePoint & ~31);
+            Integer byteBase = TABLE.get((char)(codePoint & ~31));
             if (byteBase == null) throw new IllegalBase32768TextException(ref.srcIndex + 1, codePoint);
 
             if (codePoint <= SEVEN_BITS_CP_FINAL) {

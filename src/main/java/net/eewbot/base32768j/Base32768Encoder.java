@@ -19,9 +19,9 @@ import java.nio.charset.StandardCharsets;
 public class Base32768Encoder {
     Base32768Encoder() {}
 
-    static final int[] CODES_7 = {0x180, 0x240, 0x260, 0x280};
+    static final char[] CODES_7 = {0x180, 0x240, 0x260, 0x280};
     // region CODES_15
-    static final int[] CODES_15 = {
+    static final char[] CODES_15 = {
         0x4a0, 0x500, 0x680, 0x6a0, 0x760, 0x780, 0x7c0, 0x1000, 0x10a0, 0x1100, 0x1120, 0x1140, 0x1180, 0x11e0, 0x1200, 0x1220,
         0x1260,0x12e0, 0x1320, 0x13a0, 0x13c0, 0x1420, 0x1440, 0x1460, 0x1480, 0x14a0, 0x14c0, 0x14e0, 0x1500, 0x1520, 0x1540, 0x1560,
         0x1580, 0x15a0, 0x15c0, 0x15e0, 0x1600, 0x1620, 0x1640, 0x16a0, 0x16c0, 0x1780, 0x1820, 0x1840, 0x18c0, 0x1980, 0x19e0, 0x1a20,
@@ -90,6 +90,15 @@ public class Base32768Encoder {
     // endregion CODES_15
 
     private static final VarHandle LONG_BE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
+    private static final char[] CODES_15_CHAR = new char[1 << 15];
+
+    static {
+        for (int v = 0; v < (1 << 15); v++) {
+            int base = CODES_15[v >>> 5];
+            int cp = base + (v & 31);
+            CODES_15_CHAR[v] = (char) cp;
+        }
+    }
 
     /**
      * Encodes all bytes from the specified byte array into a newly-allocated byte array using the {@link Base32768}
@@ -141,8 +150,9 @@ public class Base32768Encoder {
     public String encodeToString(byte[] src) {
         if (src.length == 0) return "";
 
-        final int[] codes15 = CODES_15;
-        final int[] codes7 = CODES_7;
+        final char[] codes15 = CODES_15;
+        final char[] codes15Char = CODES_15_CHAR;
+        final char[] codes7 = CODES_7;
         final int srcLen = src.length;
 
         final int outLen = (int) (((srcLen * 8L) + 14L) / 15);
@@ -167,14 +177,15 @@ public class Base32768Encoder {
             final int v6 = (int)(lo >>> 15) & 0x7FFF;
             final int v7 = (int) lo         & 0x7FFF;
 
-            out[oi]     = (char)(codes15[v0 >>> 5] + (v0 & 31));
-            out[oi + 1] = (char)(codes15[v1 >>> 5] + (v1 & 31));
-            out[oi + 2] = (char)(codes15[v2 >>> 5] + (v2 & 31));
-            out[oi + 3] = (char)(codes15[v3 >>> 5] + (v3 & 31));
-            out[oi + 4] = (char)(codes15[v4 >>> 5] + (v4 & 31));
-            out[oi + 5] = (char)(codes15[v5 >>> 5] + (v5 & 31));
-            out[oi + 6] = (char)(codes15[v6 >>> 5] + (v6 & 31));
-            out[oi + 7] = (char)(codes15[v7 >>> 5] + (v7 & 31));
+//            out[oi] = (char)(codes15[v0 >>> 5] + (v0 & 31));
+            out[oi]     = codes15Char[v0];
+            out[oi + 1] = codes15Char[v1];
+            out[oi + 2] = codes15Char[v2];
+            out[oi + 3] = codes15Char[v3];
+            out[oi + 4] = codes15Char[v4];
+            out[oi + 5] = codes15Char[v5];
+            out[oi + 6] = codes15Char[v6];
+            out[oi + 7] = codes15Char[v7];
 
             i += 15;
             oi += 8;
