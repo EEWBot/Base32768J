@@ -162,13 +162,14 @@ public class Base32768Encoder {
         int i = 0;
 
         // Past Path: 15バイト -> 8文字
-        final int fastLimit = srcLen - 14;
+//        final int fastLimit = srcLen - 14;
+        final int fastLimit = srcLen - 29;
         while (i < fastLimit) {
             // 120ビットを2つのlongに読み込み
-            final long hi = (long) LONG_BE.get(src, i);
+            long hi = (long) LONG_BE.get(src, i);
             // lo: 上位8bitは未使用だが、右シフトのみ使用するためマスク不要
 //            final long lo = ((long) LONG_BE.get(src, i + 7)) & 0x00FF_FFFF_FFFF_FFFFL;
-            final long lo = ((long) LONG_BE.get(src, i + 7));
+            long lo = ((long) LONG_BE.get(src, i + 7));
 
             // 15ビットずつ8回抽出
             out[oi]     = lut15[(int)(hi >>> 49)];
@@ -180,8 +181,23 @@ public class Base32768Encoder {
             out[oi + 6] = lut15[(int)(lo >>> 15) & 0x7FFF];
             out[oi + 7] = lut15[(int) lo         & 0x7FFF];
 
-            i += 15;
-            oi += 8;
+            hi = (long) LONG_BE.get(src, i + 15);
+            lo = (long) LONG_BE.get(src, i + 22);
+
+            out[oi + 8]  = lut15[(int)(hi >>> 49)];
+            out[oi + 9]  = lut15[(int)(hi >>> 34) & 0x7FFF];
+            out[oi + 10] = lut15[(int)(hi >>> 19) & 0x7FFF];
+            out[oi + 11] = lut15[(int)(hi >>> 4)  & 0x7FFF];
+            out[oi + 12] = lut15[(int)(((hi & 0xFL) << 11) | ((lo >>> 45) & 0x7FFL))];
+            out[oi + 13] = lut15[(int)(lo >>> 30) & 0x7FFF];
+            out[oi + 14] = lut15[(int)(lo >>> 15) & 0x7FFF];
+            out[oi + 15] = lut15[(int) lo         & 0x7FFF];
+
+            i += 30;
+            oi += 16;
+
+//            i += 15;
+//            oi += 8;
         }
 
         // 残りバイトの処理
