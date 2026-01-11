@@ -13,16 +13,28 @@ public class Base32768Decoder {
     Base32768Decoder() {}
 
     private static final int SEVEN_BITS_CP_FINAL = 0x29F;
-    private static final int[] DECODE_BASE = new int[1 << 16];
+    private static final int INVALID = 0xFFFF;
+    private static final short[] DECODE_VALUE = new short[1 << 16];
 
     static {
-        java.util.Arrays.fill(DECODE_BASE, -1);
+        java.util.Arrays.fill(DECODE_VALUE, (short) INVALID);
 
+        // 7-bit blocks: 4 blocks × 32 chars = 128 chars
         for (int i = 0; i < Base32768Encoder.CODES_7.length; i++) {
-            DECODE_BASE[Base32768Encoder.CODES_7[i]] = i << 5; // i*32
+            int base = i << 5;              // i*32
+            int cp0  = Base32768Encoder.CODES_7[i]; // block start
+            for (int lo = 0; lo < 32; lo++) {
+                DECODE_VALUE[cp0 + lo] = (short) (base + lo);
+            }
         }
+
+        // 15-bit blocks: 1024 blocks × 32 chars = 32768 chars
         for (int i = 0; i < Base32768Encoder.CODES_15.length; i++) {
-            DECODE_BASE[Base32768Encoder.CODES_15[i]] = i << 5; // i*32
+            int base = i << 5;              // i*32
+            int cp0  = Base32768Encoder.CODES_15[i];
+            for (int lo = 0; lo < 32; lo++) {
+                DECODE_VALUE[cp0 + lo] = (short) (base + lo);
+            }
         }
     }
 
@@ -98,14 +110,10 @@ public class Base32768Decoder {
         final int n = src.length();
         if (n == 0) return new byte[0];
 
-        // 末尾が 7bit 終端かどうか（char単位で判定）
         final char last = src.charAt(n - 1);
-        if (Character.isSurrogate(last)) {
-            throw new IllegalBase32768TextException(n, last);
-        }
-        final boolean lastIs7 = last <= SEVEN_BITS_CP_FINAL;
+        if (Character.isSurrogate(last)) throw new IllegalBase32768TextException(n, last);
 
-        // 文字数 = n（BMP前提）。もし surrogate が混じるなら途中で例外にする。
+        final boolean lastIs7 = last <= SEVEN_BITS_CP_FINAL;
         final int outLen = (lastIs7 ? (n - 1) * 15 + 7 : n * 15) >>> 3;
         final byte[] out = new byte[outLen];
 
@@ -114,20 +122,13 @@ public class Base32768Decoder {
         int bitCount = 0;
 
         for (int si = 0; si < n; si++) {
-            char ch = src.charAt(si);
-            if (Character.isSurrogate(ch)) {
-                throw new IllegalBase32768TextException(si + 1, ch);
-            }
+            final char ch = src.charAt(si);
+            if (Character.isSurrogate(ch)) throw new IllegalBase32768TextException(si + 1, ch);
 
-            final int base = DECODE_BASE[ch & ~31];
-            if (base < 0) {
-                throw new IllegalBase32768TextException(si + 1, ch);
-            }
-
-            final int v = base + (ch & 31);
+            final int v = DECODE_VALUE[ch] & 0xFFFF;
+            if (v == INVALID) throw new IllegalBase32768TextException(si + 1, ch);
 
             if (ch <= SEVEN_BITS_CP_FINAL) {
-                // 7bit は最後の1文字のみ許可
                 if (si != n - 1) throw new IllegalBase32768TextException(ch);
                 acc = (acc << 7) | v;
                 bitCount += 7;
@@ -143,10 +144,9 @@ public class Base32768Decoder {
             }
         }
 
-        // padding check
-        if (bitCount > 0 && acc != ((1L << bitCount) - 1L)) {
+        if (bitCount > 0 && acc != ((1L << bitCount) - 1L))
             throw new IllegalBase32768TextException("Bad padding");
-        }
+
         return out;
     }
 
