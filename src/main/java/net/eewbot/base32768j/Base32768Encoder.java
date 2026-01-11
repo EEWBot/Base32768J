@@ -161,14 +161,9 @@ public class Base32768Encoder {
         int oi = 0;
         int i = 0;
 
-        // Past Path: 15バイト -> 8文字
-//        final int fastLimit = srcLen - 14;
         final int fastLimit = srcLen - 29;
         while (i < fastLimit) {
-            // 120ビットを2つのlongに読み込み
             long hi = (long) LONG_BE.get(src, i);
-            // lo: 上位8bitは未使用だが、右シフトのみ使用するためマスク不要
-//            final long lo = ((long) LONG_BE.get(src, i + 7)) & 0x00FF_FFFF_FFFF_FFFFL;
             long lo = ((long) LONG_BE.get(src, i + 7));
 
             // 15ビットずつ8回抽出
@@ -195,9 +190,6 @@ public class Base32768Encoder {
 
             i += 30;
             oi += 16;
-
-//            i += 15;
-//            oi += 8;
         }
 
         // 残りバイトの処理
