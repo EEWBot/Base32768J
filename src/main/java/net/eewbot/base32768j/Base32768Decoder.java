@@ -141,45 +141,69 @@ public class Base32768Decoder {
 
         final char last = src.charAt(n - 1);
         final int lastBits = LAST_BITS[last] & 0xFF;
-        if (lastBits == 0) {
-            // last が無効（未知 or surrogate）
-            throw new IllegalBase32768TextException(n, last);
-        }
+        if (lastBits == 0) throw new IllegalBase32768TextException("Invalid Base32768 text");
 
         final int outLen = ((n - 1) * 15 + lastBits) >>> 3;
         final byte[] out = new byte[outLen];
 
+        final char[] dec15 = DECODE15_ONLY;
+        final char[] decLast = DECODE_LAST;
+
         int oi = 0;
         long acc = 0L;
         int bitCount = 0;
-
+        int si = 0;
         final int end = n - 1;
 
-        // 非末尾：15bit のみ
-        for (int si = 0; si < end; si++) {
-            final char ch = src.charAt(si);
-            final int v = DECODE15_ONLY[ch];
-            if (v == INVALID) {
-                throw new IllegalBase32768TextException(si + 1, ch);
+        final int fastLimit = end - 1;
+        while (si < fastLimit) {
+            final int v0 = dec15[src.charAt(si)];
+            final int v1 = dec15[src.charAt(si + 1)];
+
+            // INVALID == 0xFFFF, valid values are 0..0x7FFF only
+            if ((v0 | v1) == INVALID) {
+                throw new IllegalBase32768TextException("Invalid Base32768 text");
             }
+
+            acc = (acc << 30) | ((long) v0 << 15) | (long) v1;
+            bitCount += 30;
+
+            // 3バイト固定出力（shift を1回に集約）
+            final int shift = bitCount - 24;      // 6..12 程度になる想定
+            out[oi]     = (byte) (acc >>> (shift + 16));
+            out[oi + 1] = (byte) (acc >>> (shift + 8));
+            out[oi + 2] = (byte) (acc >>> shift);
+            oi += 3;
+            bitCount = shift;
+
+            if (bitCount >= 8) {
+                out[oi++] = (byte) (acc >>> (bitCount - 8));
+                bitCount -= 8;
+            }
+            acc &= MASK64[bitCount];
+
+            si += 2;
+        }
+
+        if (si < end) {
+            final int v = dec15[src.charAt(si)];
+            if (v == INVALID) throw new IllegalBase32768TextException("Invalid Base32768 text");
 
             acc = (acc << 15) | v;
             bitCount += 15;
 
+            out[oi++] = (byte)(acc >>> (bitCount - 8));
             bitCount -= 8;
-            out[oi++] = (byte) (acc >>> bitCount);
             if (bitCount >= 8) {
+                out[oi++] = (byte)(acc >>> (bitCount - 8));
                 bitCount -= 8;
-                out[oi++] = (byte) (acc >>> bitCount);
             }
             acc &= MASK64[bitCount];
         }
 
-        // 末尾：7 or 15
         {
-            final int v = DECODE_LAST[last];
-            // lastBits!=0 なので通常 INVALID ではないが念のため
-            if (v == INVALID) throw new IllegalBase32768TextException(n, last);
+            final int v = decLast[last];
+            if (v == INVALID) throw new IllegalBase32768TextException("Invalid Base32768 text");
 
             acc = (acc << lastBits) | v;
             bitCount += lastBits;
@@ -202,7 +226,6 @@ public class Base32768Decoder {
         if (bitCount > 0 && acc != MASK64[bitCount]) {
             throw new IllegalBase32768TextException("Bad padding");
         }
-
         return out;
     }
 
