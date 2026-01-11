@@ -166,7 +166,9 @@ public class Base32768Encoder {
         while (i < fastLimit) {
             // 120ビットを2つのlongに読み込み
             final long hi = (long) LONG_BE.get(src, i);
-            final long lo = ((long) LONG_BE.get(src, i + 7)) & 0x00FF_FFFF_FFFF_FFFFL;
+            // lo: 上位8bitは未使用だが、右シフトのみ使用するためマスク不要
+//            final long lo = ((long) LONG_BE.get(src, i + 7)) & 0x00FF_FFFF_FFFF_FFFFL;
+            final long lo = ((long) LONG_BE.get(src, i + 7));
 
             // 15ビットずつ8回抽出
             out[oi]     = lut15[(int)(hi >>> 49)];
