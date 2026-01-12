@@ -18,7 +18,6 @@ public class Base32768Decoder {
 
     private static final char[] DECODE = new char[1 << 16];
     private static final byte[] LAST_BITS = new byte[1 << 16];
-    private static final long[] MASK64 = new long[65];
 
     static {
         Arrays.fill(DECODE, INVALID);
@@ -49,10 +48,6 @@ public class Base32768Decoder {
         for (int cp = 0xD800; cp <= 0xDFFF; cp++) {
             DECODE[cp] = INVALID;
             LAST_BITS[cp] = 0;
-        }
-
-        for (int i = 0; i <= 64; i++) {
-            MASK64[i] = (i == 64) ? -1L : ((1L << i) - 1L);
         }
     }
 
@@ -136,7 +131,6 @@ public class Base32768Decoder {
         final byte[] out = new byte[outLen];
 
         final char[] decode = DECODE;
-        final long[] mask64 = MASK64;
 
         int oi = 0;
         int si = 0;
@@ -210,7 +204,6 @@ public class Base32768Decoder {
                 bitCount -= 8;
             }
 
-            acc &= mask64[bitCount];
             si += 2;
         }
 
@@ -227,7 +220,6 @@ public class Base32768Decoder {
                 out[oi++] = (byte) (acc >>> (bitCount - 8));
                 bitCount -= 8;
             }
-            acc &= mask64[bitCount];
         }
 
         {
@@ -244,10 +236,9 @@ public class Base32768Decoder {
                 bitCount -= 8;
                 out[oi++] = (byte) (acc >>> bitCount);
             }
-            acc &= mask64[bitCount];
         }
 
-        if (bitCount > 0 && acc != mask64[bitCount]) {
+        if (bitCount > 0 && (acc & ((1L << bitCount) - 1)) != ((1L << bitCount) - 1)) {
             throw new IllegalBase32768TextException("Bad padding");
         }
 
