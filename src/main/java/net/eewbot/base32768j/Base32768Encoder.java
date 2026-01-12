@@ -154,8 +154,8 @@ public class Base32768Encoder {
 
         final char[] lut15 = CODES15_CHAR;
         final char[] lut7  = CODES7_CHAR;
-        final int srcLen = src.length;
 
+        final int srcLen = src.length;
         final int outLen = (int) (((srcLen * 8L) + 14L) / 15);
         final char[] out = new char[outLen];
         int oi = 0;
@@ -191,6 +191,25 @@ public class Base32768Encoder {
             i += 30;
             oi += 16;
         }
+
+        // Fast Path: 15バイト -> 8文字
+//        final int fastLimit = srcLen - 14;
+//        while (i < fastLimit) {
+//            long hi = (long) LONG_BE.get(src, i);
+//            long lo = (long) LONG_BE.get(src, i + 7);
+//
+//            out[oi]     = lut15[(int)(hi >>> 49)];
+//            out[oi + 1] = lut15[(int)(hi >>> 34) & 0x7FFF];
+//            out[oi + 2] = lut15[(int)(hi >>> 19) & 0x7FFF];
+//            out[oi + 3] = lut15[(int)(hi >>> 4)  & 0x7FFF];
+//            out[oi + 4] = lut15[(int)(((hi & 0xFL) << 11) | ((lo >>> 45) & 0x7FFL))];
+//            out[oi + 5] = lut15[(int)(lo >>> 30) & 0x7FFF];
+//            out[oi + 6] = lut15[(int)(lo >>> 15) & 0x7FFF];
+//            out[oi + 7] = lut15[(int) lo         & 0x7FFF];
+//
+//            i += 15;
+//            oi += 8;
+//        }
 
         // 残りバイトの処理
         long acc = 0L;
