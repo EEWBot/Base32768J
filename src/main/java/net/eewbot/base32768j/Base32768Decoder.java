@@ -6,6 +6,7 @@ import net.eewbot.base32768j.exception.IllegalBase32768TextException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 public class Base32768Decoder {
     Base32768Decoder() {}
@@ -14,7 +15,7 @@ public class Base32768Decoder {
     private static final char INVALID = 0xFFFF;
 
     // 非末尾：15bit 文字のみ有効（7bit と surrogate は INVALID）
-    private static final char[] DECODE15_ONLY = new char[1 << 16];
+    private static final char[] DECODE15 = new char[1 << 16];
 
     // 末尾：7bit/15bit 両方有効（surrogate は INVALID）
     private static final char[] DECODE_LAST = new char[1 << 16];
@@ -25,13 +26,8 @@ public class Base32768Decoder {
     private static final long[] MASK64 = new long[65];
 
     static {
-        for (int i = 0; i <= 64; i++) {
-            MASK64[i] = (i == 64) ? -1L : ((1L << i) - 1L);
-        }
-
-        java.util.Arrays.fill(DECODE15_ONLY, INVALID);
-        java.util.Arrays.fill(DECODE_LAST, INVALID);
-        // LAST_BITS はデフォルト 0
+        Arrays.fill(DECODE15, INVALID);
+        Arrays.fill(DECODE_LAST, INVALID);
 
         // 7-bit blocks（末尾のみ有効）
         for (int i = 0; i < Base32768Encoder.CODES_7.length; i++) {
@@ -51,7 +47,7 @@ public class Base32768Decoder {
             for (int lo = 0; lo < 32; lo++) {
                 int cp = cp0 + lo;
                 char v = (char) (base + lo);
-                DECODE15_ONLY[cp] = v;
+                DECODE15[cp] = v;
                 DECODE_LAST[cp]   = v;
                 LAST_BITS[cp]     = 15;
             }
@@ -59,9 +55,13 @@ public class Base32768Decoder {
 
         // surrogate を明示的に無効化
         for (int cp = 0xD800; cp <= 0xDFFF; cp++) {
-            DECODE15_ONLY[cp] = INVALID;
+            DECODE15[cp] = INVALID;
             DECODE_LAST[cp]   = INVALID;
             LAST_BITS[cp]     = 0;
+        }
+
+        for (int i = 0; i <= 64; i++) {
+            MASK64[i] = (i == 64) ? -1L : ((1L << i) - 1L);
         }
     }
 
@@ -144,20 +144,16 @@ public class Base32768Decoder {
         final int outLen = ((n - 1) * 15 + lastBits) >>> 3;
         final byte[] out = new byte[outLen];
 
-        final char[] dec15 = DECODE15_ONLY;
+        final char[] dec15 = DECODE15;
         final char[] decLast = DECODE_LAST;
         final long[] mask64 = MASK64;
 
         int oi = 0;
-        long acc = 0L;
-        int bitCount = 0;
-
-        final int end = n - 1; // last は別処理
-
         int si = 0;
 
         // ---- Fast Path: 8文字(=120bit) -> 15バイト固定出力 ----
         // end までのうち、8文字単位で回す（last は含めない）
+        final int end = n - 1; // last は別処理
         final int fastEnd = end & ~7; // 8の倍数に切り下げ
         while (si < fastEnd) {
             final int v0 = dec15[src.charAt(si)];
@@ -196,6 +192,9 @@ public class Base32768Decoder {
             oi += 15;
             si += 8;
         }
+
+        long acc = 0L;
+        int bitCount = 0;
 
         final int fast2Limit = end - 1; // 2文字取れる限界（lastは除外）
         while (si < fast2Limit) {
