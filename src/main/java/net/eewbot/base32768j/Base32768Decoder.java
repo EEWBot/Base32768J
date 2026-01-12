@@ -158,7 +158,7 @@ public class Base32768Decoder {
 
         // ---- Fast Path: 8文字(=120bit) -> 15バイト固定出力 ----
         // end までのうち、8文字単位で回す（last は含めない）
-        final int fastEnd = end - (end & 7); // 8の倍数に切り下げ
+        final int fastEnd = end & ~7; // 8の倍数に切り下げ
         while (si < fastEnd) {
             final int v0 = dec15[src.charAt(si)];
             final int v1 = dec15[src.charAt(si + 1)];
@@ -169,8 +169,9 @@ public class Base32768Decoder {
             final int v6 = dec15[src.charAt(si + 6)];
             final int v7 = dec15[src.charAt(si + 7)];
 
-            // INVALID == 0xFFFF, valid values are 0..0x7FFF only
-            if ( (v0 | v1 | v2 | v3 | v4 | v5 | v6 | v7) == INVALID ) {
+            // check invalid
+            final int m = v0 | v1 | v2 | v3 | v4 | v5 | v6 | v7;
+            if ((m & 0x8000) != 0) {
                 throw new IllegalBase32768TextException("Invalid Base32768 text");
             }
 
@@ -196,7 +197,6 @@ public class Base32768Decoder {
             si += 8;
         }
 
-        // ---- Fallback: 残り(0..7文字)は既存の acc/bitCount 方式 ----
         while (si < end) {
             final int v = dec15[src.charAt(si)];
             if (v == INVALID) throw new IllegalBase32768TextException("Invalid Base32768 text");
