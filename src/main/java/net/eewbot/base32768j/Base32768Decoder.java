@@ -6,8 +6,6 @@ import net.eewbot.base32768j.exception.IllegalBase32768TextException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
 
 public class Base32768Decoder {
     Base32768Decoder() {}
@@ -148,59 +146,76 @@ public class Base32768Decoder {
 
         final char[] dec15 = DECODE15_ONLY;
         final char[] decLast = DECODE_LAST;
+        final long[] mask64 = MASK64;
 
         int oi = 0;
         long acc = 0L;
         int bitCount = 0;
-        int si = 0;
-        final int end = n - 1;
 
-        final int fastLimit = end - 1;
-        while (si < fastLimit) {
+        final int end = n - 1; // last は別処理
+
+        int si = 0;
+
+        // ---- Fast Path: 8文字(=120bit) -> 15バイト固定出力 ----
+        // end までのうち、8文字単位で回す（last は含めない）
+        final int fastEnd = end - (end & 7); // 8の倍数に切り下げ
+        while (si < fastEnd) {
             final int v0 = dec15[src.charAt(si)];
             final int v1 = dec15[src.charAt(si + 1)];
+            final int v2 = dec15[src.charAt(si + 2)];
+            final int v3 = dec15[src.charAt(si + 3)];
+            final int v4 = dec15[src.charAt(si + 4)];
+            final int v5 = dec15[src.charAt(si + 5)];
+            final int v6 = dec15[src.charAt(si + 6)];
+            final int v7 = dec15[src.charAt(si + 7)];
 
             // INVALID == 0xFFFF, valid values are 0..0x7FFF only
-            if ((v0 | v1) == INVALID) {
+            if ( (v0 | v1 | v2 | v3 | v4 | v5 | v6 | v7) == INVALID ) {
                 throw new IllegalBase32768TextException("Invalid Base32768 text");
             }
 
-            acc = (acc << 30) | ((long) v0 << 15) | (long) v1;
-            bitCount += 30;
+            // 15バイトを直接生成（MSB→LSBの順）
+            // 各 v は 0..0x7FFF（15bit）
+            out[oi]      = (byte) (v0 >>> 7);
+            out[oi + 1]  = (byte) ((v0 << 1) | (v1 >>> 14));
+            out[oi + 2]  = (byte) (v1 >>> 6);
+            out[oi + 3]  = (byte) ((v1 << 2) | (v2 >>> 13));
+            out[oi + 4]  = (byte) (v2 >>> 5);
+            out[oi + 5]  = (byte) ((v2 << 3) | (v3 >>> 12));
+            out[oi + 6]  = (byte) (v3 >>> 4);
+            out[oi + 7]  = (byte) ((v3 << 4) | (v4 >>> 11));
+            out[oi + 8]  = (byte) (v4 >>> 3);
+            out[oi + 9]  = (byte) ((v4 << 5) | (v5 >>> 10));
+            out[oi + 10] = (byte) (v5 >>> 2);
+            out[oi + 11] = (byte) ((v5 << 6) | (v6 >>> 9));
+            out[oi + 12] = (byte) (v6 >>> 1);
+            out[oi + 13] = (byte) ((v6 << 7) | (v7 >>> 8));
+            out[oi + 14] = (byte) (v7);
 
-            // 3バイト固定出力（shift を1回に集約）
-            final int shift = bitCount - 24;      // 6..12 程度になる想定
-            out[oi]     = (byte) (acc >>> (shift + 16));
-            out[oi + 1] = (byte) (acc >>> (shift + 8));
-            out[oi + 2] = (byte) (acc >>> shift);
-            oi += 3;
-            bitCount = shift;
-
-            if (bitCount >= 8) {
-                out[oi++] = (byte) (acc >>> (bitCount - 8));
-                bitCount -= 8;
-            }
-            acc &= MASK64[bitCount];
-
-            si += 2;
+            oi += 15;
+            si += 8;
         }
 
-        if (si < end) {
+        // ---- Fallback: 残り(0..7文字)は既存の acc/bitCount 方式 ----
+        while (si < end) {
             final int v = dec15[src.charAt(si)];
             if (v == INVALID) throw new IllegalBase32768TextException("Invalid Base32768 text");
 
             acc = (acc << 15) | v;
             bitCount += 15;
 
-            out[oi++] = (byte)(acc >>> (bitCount - 8));
+            out[oi++] = (byte) (acc >>> (bitCount - 8));
             bitCount -= 8;
             if (bitCount >= 8) {
-                out[oi++] = (byte)(acc >>> (bitCount - 8));
+                out[oi++] = (byte) (acc >>> (bitCount - 8));
                 bitCount -= 8;
             }
-            acc &= MASK64[bitCount];
+
+            acc &= mask64[bitCount];
+            si++;
         }
 
+        // ---- last（7 or 15） ----
         {
             final int v = decLast[last];
             if (v == INVALID) throw new IllegalBase32768TextException("Invalid Base32768 text");
@@ -219,13 +234,14 @@ public class Base32768Decoder {
                         out[oi++] = (byte) (acc >>> bitCount);
                     }
                 }
-                acc &= MASK64[bitCount];
+                acc &= mask64[bitCount];
             }
         }
 
-        if (bitCount > 0 && acc != MASK64[bitCount]) {
+        if (bitCount > 0 && acc != mask64[bitCount]) {
             throw new IllegalBase32768TextException("Bad padding");
         }
+
         return out;
     }
 
