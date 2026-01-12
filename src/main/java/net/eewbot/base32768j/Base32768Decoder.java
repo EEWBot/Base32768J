@@ -197,9 +197,37 @@ public class Base32768Decoder {
             si += 8;
         }
 
-        while (si < end) {
+        final int fast2Limit = end - 1; // 2文字取れる限界（lastは除外）
+        while (si < fast2Limit) {
+            final int v0 = dec15[src.charAt(si)];
+            final int v1 = dec15[src.charAt(si + 1)];
+
+            // INVALID == 0xFFFF, valid values are 0..0x7FFF only
+            if (((v0 | v1) & 0x8000) != 0) {
+                throw new IllegalBase32768TextException("Invalid Base32768 text");
+            }
+
+            acc = (acc << 30) | ((long) v0 << 15) | (long) v1;
+            bitCount += 30;
+
+            out[oi]     = (byte) (acc >>> (bitCount - 8));
+            out[oi + 1] = (byte) (acc >>> (bitCount - 16));
+            out[oi + 2] = (byte) (acc >>> (bitCount - 24));
+            oi += 3;
+            bitCount -= 24;
+
+            if (bitCount >= 8) {
+                out[oi++] = (byte) (acc >>> (bitCount - 8));
+                bitCount -= 8;
+            }
+
+            acc &= mask64[bitCount];
+            si += 2;
+        }
+
+        if (si < end) {
             final int v = dec15[src.charAt(si)];
-            if (v == INVALID) throw new IllegalBase32768TextException("Invalid Base32768 text");
+            if ((v & 0x8000) != 0) throw new IllegalBase32768TextException("Invalid Base32768 text");
 
             acc = (acc << 15) | v;
             bitCount += 15;
@@ -210,32 +238,23 @@ public class Base32768Decoder {
                 out[oi++] = (byte) (acc >>> (bitCount - 8));
                 bitCount -= 8;
             }
-
             acc &= mask64[bitCount];
-            si++;
         }
 
-        // ---- last（7 or 15） ----
         {
             final int v = decLast[last];
-            if (v == INVALID) throw new IllegalBase32768TextException("Invalid Base32768 text");
+            if ((v & 0x8000) != 0) {
+                throw new IllegalBase32768TextException("Invalid Base32768 text");
+            }
 
             acc = (acc << lastBits) | v;
             bitCount += lastBits;
 
-            if (bitCount >= 8) {
+            while (bitCount >= 8) {
                 bitCount -= 8;
                 out[oi++] = (byte) (acc >>> bitCount);
-                if (bitCount >= 8) {
-                    bitCount -= 8;
-                    out[oi++] = (byte) (acc >>> bitCount);
-                    if (bitCount >= 8) {
-                        bitCount -= 8;
-                        out[oi++] = (byte) (acc >>> bitCount);
-                    }
-                }
-                acc &= mask64[bitCount];
             }
+            acc &= mask64[bitCount];
         }
 
         if (bitCount > 0 && acc != mask64[bitCount]) {
