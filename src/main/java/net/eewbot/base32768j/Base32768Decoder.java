@@ -4,7 +4,10 @@ import net.eewbot.base32768j.exception.BufferTooSmallException;
 import net.eewbot.base32768j.exception.IllegalBase32768TextException;
 
 import java.io.InputStream;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
@@ -18,6 +21,8 @@ public class Base32768Decoder {
 
     private static final char[] DECODE = new char[1 << 16];
     private static final byte[] LAST_BITS = new byte[1 << 16];
+
+    private static final VarHandle VH_LONG_BE = MethodHandles.byteArrayViewVarHandle(long[].class,  ByteOrder.BIG_ENDIAN);
 
     static {
         Arrays.fill(DECODE, INVALID);
@@ -137,44 +142,42 @@ public class Base32768Decoder {
 
         // ---- Fast Path: 8文字(=120bit) -> 15バイト固定出力 ----
         // end までのうち、8文字単位で回す（last は含めない）
-        final int end = n - 1; // last は別処理
-        final int fastEnd = end & ~7; // 8の倍数に切り下げ
+        final int end = n - 1;
+        final int fastEnd = end & ~7;
         while (si < fastEnd) {
-            final int v0 = decode[src.charAt(si)];
-            final int v1 = decode[src.charAt(si + 1)];
-            final int v2 = decode[src.charAt(si + 2)];
-            final int v3 = decode[src.charAt(si + 3)];
-            final int v4 = decode[src.charAt(si + 4)];
-            final int v5 = decode[src.charAt(si + 5)];
-            final int v6 = decode[src.charAt(si + 6)];
-            final int v7 = decode[src.charAt(si + 7)];
+            int v0 = decode[src.charAt(si)];
+            int v1 = decode[src.charAt(si + 1)];
+            int v2 = decode[src.charAt(si + 2)];
+            int v3 = decode[src.charAt(si + 3)];
+            int v4 = decode[src.charAt(si + 4)];
+            int v5 = decode[src.charAt(si + 5)];
+            int v6 = decode[src.charAt(si + 6)];
+            int v7 = decode[src.charAt(si + 7)];
 
-            // check invalid
-            final int m = v0 | v1 | v2 | v3 | v4 | v5 | v6 | v7;
-            if ((m & 0x8000) != 0) {
-                throw new IllegalBase32768TextException("Invalid Base32768 text");
-            }
+            int m = v0 | v1 | v2 | v3 | v4 | v5 | v6 | v7;
+            if ((m & 0x8000) != 0) throw new IllegalBase32768TextException("Invalid Base32768 text");
 
-            // 15バイトを直接生成（MSB→LSBの順）
-            // 各 v は 0..0x7FFF（15bit）
-            out[oi]      = (byte) (v0 >>> 7);
-            out[oi + 1]  = (byte) ((v0 << 1) | (v1 >>> 14));
-            out[oi + 2]  = (byte) (v1 >>> 6);
-            out[oi + 3]  = (byte) ((v1 << 2) | (v2 >>> 13));
-            out[oi + 4]  = (byte) (v2 >>> 5);
-            out[oi + 5]  = (byte) ((v2 << 3) | (v3 >>> 12));
-            out[oi + 6]  = (byte) (v3 >>> 4);
-            out[oi + 7]  = (byte) ((v3 << 4) | (v4 >>> 11));
-            out[oi + 8]  = (byte) (v4 >>> 3);
-            out[oi + 9]  = (byte) ((v4 << 5) | (v5 >>> 10));
-            out[oi + 10] = (byte) (v5 >>> 2);
-            out[oi + 11] = (byte) ((v5 << 6) | (v6 >>> 9));
-            out[oi + 12] = (byte) (v6 >>> 1);
-            out[oi + 13] = (byte) ((v6 << 7) | (v7 >>> 8));
-            out[oi + 14] = (byte) (v7);
+            // w0: v0, v1, v2, v3, v4上位4ビット
+            long w0 = ((long)v0 << 49)
+                    | ((long)v1 << 34)
+                    | ((long)v2 << 19)
+                    | ((long)v3 << 4)
+                    | (v4 >>> 11);
 
-            oi += 15;
+            // w1: out[7]と同じバイトから始める
+            // out[7] = w0 & 0xFF なので、それを最上位に
+            // 残りは v4(下位11), v5, v6, v7 を詰める
+            long w1 = ((w0 & 0xFF) << 56)
+                    | ((long)(v4 & 0x7FF) << 45)
+                    | ((long)v5 << 30)
+                    | ((long)v6 << 15)
+                    | (long)v7;
+
+            VH_LONG_BE.set(out, oi, w0);
+            VH_LONG_BE.set(out, oi + 7, w1);
+
             si += 8;
+            oi += 15;
         }
 
         long acc = 0L;

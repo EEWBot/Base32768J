@@ -89,7 +89,8 @@ public class Base32768Encoder {
     };
     // endregion CODES_15
 
-    private static final VarHandle LONG_BE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
+    private static final VarHandle VH_LONG_BE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
+
     private static final char[] CODES15_CHAR = new char[1 << 15];
     private static final char[] CODES7_CHAR  = new char[1 << 7];
 
@@ -163,8 +164,8 @@ public class Base32768Encoder {
 
         final int fastLimit = srcLen - 29;
         while (i < fastLimit) {
-            long hi = (long) LONG_BE.get(src, i);
-            long lo = ((long) LONG_BE.get(src, i + 7));
+            long hi = (long) VH_LONG_BE.get(src, i);
+            long lo = ((long) VH_LONG_BE.get(src, i + 7));
 
             // 15ビットずつ8回抽出
             out[oi]     = lut15[(int)(hi >>> 49)];
@@ -176,8 +177,8 @@ public class Base32768Encoder {
             out[oi + 6] = lut15[(int)(lo >>> 15) & 0x7FFF];
             out[oi + 7] = lut15[(int) lo         & 0x7FFF];
 
-            hi = (long) LONG_BE.get(src, i + 15);
-            lo = (long) LONG_BE.get(src, i + 22);
+            hi = (long) VH_LONG_BE.get(src, i + 15);
+            lo = (long) VH_LONG_BE.get(src, i + 22);
 
             out[oi + 8]  = lut15[(int)(hi >>> 49)];
             out[oi + 9]  = lut15[(int)(hi >>> 34) & 0x7FFF];
