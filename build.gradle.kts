@@ -71,7 +71,11 @@ tasks {
         timeOnIteration = "5s"
         fork = 5
 
-        forceGC = true
+        jvmArgsAppend = listOf(
+            "-Xms4g",
+            "-Xmx4g",
+        )
+
         resultFormat = "JSON"
         failOnError = true
     }
