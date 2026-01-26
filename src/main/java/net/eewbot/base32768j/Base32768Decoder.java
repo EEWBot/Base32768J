@@ -130,7 +130,7 @@ public class Base32768Decoder {
 
         final char last = src.charAt(n - 1);
         final int lastBits = LAST_BITS[last] & 0xFF;
-        if (lastBits == 0) throw new IllegalBase32768TextException("Invalid Base32768 text");
+        if (lastBits == 0) throw new IllegalBase32768TextException(n - 1, last);
 
         final int outLen = ((n - 1) * 15 + lastBits) >>> 3;
         final byte[] out = new byte[outLen];
@@ -155,7 +155,9 @@ public class Base32768Decoder {
             int v7 = decode[src.charAt(si + 7)];
 
             int m = v0 | v1 | v2 | v3 | v4 | v5 | v6 | v7;
-            if ((m & 0x8000) != 0) throw new IllegalBase32768TextException("Invalid Base32768 text");
+            if ((m & 0x8000) != 0) {
+                throwDetailedException(src, si, v0, v1, v2, v3, v4, v5, v6, v7);
+            }
 
             // w0: v0, v1, v2, v3, v4上位4ビット
             long w0 = ((long)v0 << 49)
@@ -190,7 +192,9 @@ public class Base32768Decoder {
 
             // INVALID == 0xFFFF, valid values are 0..0x7FFF only
             if (((v0 | v1) & 0x8000) != 0) {
-                throw new IllegalBase32768TextException("Invalid Base32768 text");
+                int offset = (v0 & 0x8000) != 0 ? 0 : 1;
+                int v = offset == 0 ? v0 : v1;
+                throwForInvalidValue(si + offset, src.charAt(si + offset), v);
             }
 
             acc = (acc << 30) | ((long) v0 << 15) | (long) v1;
@@ -212,7 +216,9 @@ public class Base32768Decoder {
 
         if (si < end) {
             final int v = decode[src.charAt(si)];
-            if ((v & 0x8000) != 0) throw new IllegalBase32768TextException("Invalid Base32768 text");
+            if ((v & 0x8000) != 0) {
+                throwForInvalidValue(si, src.charAt(si), v);
+            }
 
             acc = (acc << 15) | v;
             bitCount += 15;
@@ -228,7 +234,7 @@ public class Base32768Decoder {
         {
             int v = decode[last];
             if (v == INVALID) {
-                throw new IllegalBase32768TextException("Invalid Base32768 text");
+                throw new IllegalBase32768TextException(n - 1, last);
             }
             v &= 0x7FFF; // strip 7-bit flag if present
 
@@ -242,7 +248,10 @@ public class Base32768Decoder {
         }
 
         if (bitCount > 0 && (acc & ((1L << bitCount) - 1)) != ((1L << bitCount) - 1)) {
-            throw new IllegalBase32768TextException("Bad padding");
+            long actual = acc & ((1L << bitCount) - 1);
+            long expected = (1L << bitCount) - 1;
+            throw new IllegalBase32768TextException(
+                "Bad padding at position " + (n - 1) + ": expected " + bitCount + " bits of 1s, got 0b" + Long.toBinaryString(actual));
         }
 
         return out;
@@ -250,5 +259,24 @@ public class Base32768Decoder {
 
     public InputStream wrap(InputStream is) {
         throw new UnsupportedOperationException("Not yet implemented");
+    }
+
+    private static void throwForInvalidValue(int position, char ch, int decodedValue) {
+        if (decodedValue == INVALID) {
+            throw new IllegalBase32768TextException(position, ch);
+        } else {
+            throw new IllegalBase32768TextException("7-bit code point at non-final position " + position + ": " + (int) ch);
+        }
+    }
+
+    private static void throwDetailedException(String src, int si, int v0, int v1, int v2, int v3, int v4, int v5, int v6, int v7) {
+        int[] vals = {v0, v1, v2, v3, v4, v5, v6, v7};
+        for (int i = 0; i < 8; i++) {
+            if ((vals[i] & 0x8000) != 0) {
+                throwForInvalidValue(si + i, src.charAt(si + i), vals[i]);
+            }
+        }
+        // Should never reach here
+        throw new IllegalBase32768TextException("Invalid Base32768 text");
     }
 }
