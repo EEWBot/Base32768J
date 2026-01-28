@@ -27,25 +27,25 @@ public class Base32768Decoder {
     static {
         Arrays.fill(DECODE, INVALID);
 
-        // 7-bit blocks（末尾のみ有効）
-        for (int i = 0; i < Base32768Encoder.CODES_7.length; i++) {
-            int base = i << 5;                 // 0..127
-            int cp0 = Base32768Encoder.CODES_7[i];
-            LAST_BITS[cp0 >> 5] = 7;
-            for (int lo = 0; lo < 32; lo++) {
-                int cp = cp0 + lo;
-                DECODE[cp] = (char) (FLAG7 | (base + lo)); // bit15=1 を7bitフラグに
+        // Build reverse lookup tables from Unicode ranges
+        int idx = 0;
+
+        // 7-bit blocks (valid only at end of input)
+        for (int[] range : Base32768Encoder.CODES_7_RANGES) {
+            for (int cp = range[0]; cp <= range[1]; cp++) {
+                DECODE[cp] = (char) (FLAG7 | idx);
+                LAST_BITS[cp >> 5] = 7;
+                idx++;
             }
         }
 
-        // 15-bit blocks（非末尾/末尾とも有効）
-        for (int i = 0; i < Base32768Encoder.CODES_15.length; i++) {
-            int base = i << 5;                 // 0..32767
-            int cp0 = Base32768Encoder.CODES_15[i];
-            LAST_BITS[cp0 >> 5] = 15;
-            for (int lo = 0; lo < 32; lo++) {
-                int cp = cp0 + lo;
-                DECODE[cp] = (char) (base + lo);        // bit15=0
+        // 15-bit blocks (valid anywhere)
+        idx = 0;
+        for (int[] range : Base32768Encoder.CODES_15_RANGES) {
+            for (int cp = range[0]; cp <= range[1]; cp++) {
+                DECODE[cp] = (char) idx;
+                LAST_BITS[cp >> 5] = 15;
+                idx++;
             }
         }
     }
