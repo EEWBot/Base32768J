@@ -251,7 +251,8 @@ public class Base32768Decoder {
             long actual = acc & ((1L << bitCount) - 1);
             long expected = (1L << bitCount) - 1;
             throw new IllegalBase32768TextException(
-                "Bad padding at position " + (n - 1) + ": expected " + bitCount + " bits of 1s, got 0b" + Long.toBinaryString(actual));
+                "Bad padding at position " + (n - 1) + ": expected " + bitCount + " bits of 1s, got 0b" + Long.toBinaryString(actual)
+            );
         }
 
         return out;
