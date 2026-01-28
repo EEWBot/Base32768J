@@ -3,8 +3,6 @@ package net.eewbot.base32768j;
 import org.openjdk.jmh.infra.Blackhole;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 /**
  * This class consists exclusively of static methods for obtaining encoders and decoders for the Base32768 encoding
