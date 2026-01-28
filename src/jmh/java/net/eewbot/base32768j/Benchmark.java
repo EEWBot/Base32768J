@@ -29,7 +29,7 @@ public class Benchmark {
     public String tailMode;
 
 
-    @Param({"768"})
+    @Param({"789"})
     public long seed;
 
     private byte[] inputArrayEnc;
