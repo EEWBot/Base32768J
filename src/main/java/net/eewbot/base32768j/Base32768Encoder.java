@@ -23,7 +23,7 @@ public class Base32768Encoder {
     // region CODES_15
     static final char[] CODES_15 = {
         0x4a0, 0x500, 0x680, 0x6a0, 0x760, 0x780, 0x7c0, 0x1000, 0x10a0, 0x1100, 0x1120, 0x1140, 0x1180, 0x11e0, 0x1200, 0x1220,
-        0x1260,0x12e0, 0x1320, 0x13a0, 0x13c0, 0x1420, 0x1440, 0x1460, 0x1480, 0x14a0, 0x14c0, 0x14e0, 0x1500, 0x1520, 0x1540, 0x1560,
+        0x1260, 0x12e0, 0x1320, 0x13a0, 0x13c0, 0x1420, 0x1440, 0x1460, 0x1480, 0x14a0, 0x14c0, 0x14e0, 0x1500, 0x1520, 0x1540, 0x1560,
         0x1580, 0x15a0, 0x15c0, 0x15e0, 0x1600, 0x1620, 0x1640, 0x16a0, 0x16c0, 0x1780, 0x1820, 0x1840, 0x18c0, 0x1980, 0x19e0, 0x1a20,
         0x1bc0, 0x1c00, 0x1d00, 0x21e0, 0x22c0, 0x2340, 0x2360, 0x2380, 0x23a0, 0x23c0, 0x2400, 0x2500, 0x2520, 0x2540, 0x2560, 0x2580,
         0x25a0, 0x25c0, 0x25e0, 0x2600, 0x2620, 0x2640, 0x2660, 0x2680, 0x26a0, 0x26c0, 0x26e0, 0x2700, 0x2720, 0x2740, 0x2780, 0x27a0,
@@ -92,7 +92,7 @@ public class Base32768Encoder {
     private static final VarHandle VH_LONG_BE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
 
     private static final char[] CODES15_CHAR = new char[1 << 15];
-    private static final char[] CODES7_CHAR  = new char[1 << 7];
+    private static final char[] CODES7_CHAR = new char[1 << 7];
 
     static {
         for (int v = 0; v < (1 << 15); v++) {
@@ -106,6 +106,7 @@ public class Base32768Encoder {
     /**
      * Encodes all bytes from the specified byte array into a newly-allocated byte array using the {@link Base32768}
      * encoding scheme. The returned byte array is of the length of the resulting bytes.
+     *
      * @param src the byte array to encode
      * @return A newly-allocated byte array containing the resulting encoded bytes.
      */
@@ -119,6 +120,7 @@ public class Base32768Encoder {
      * It is the responsibility of the invoker of this method to make sure the output byte array dst has enough space
      * for encoding all bytes from the input byte array. No bytes will be written to the output byte array if the output
      * byte array is not big enough.
+     *
      * @param src the byte array to encode
      * @param dst the output byte array
      * @return The number of bytes written to the output byte array
@@ -136,6 +138,7 @@ public class Base32768Encoder {
      * {@link Base32768} encoding scheme. Upon return, the source buffer's position will be updated to its limit;
      * its limit will not have been changed. The returned output buffer's position will be zero and its limit will be
      * the number of resulting encoded bytes.
+     *
      * @param buffer the source ByteBuffer to encode
      * @return A newly-allocated byte buffer containing the encoded bytes.
      */
@@ -147,6 +150,7 @@ public class Base32768Encoder {
 
     /**
      * Encodes the specified byte array into a String using the {@link Base32768} encoding scheme.<br>
+     *
      * @param src the byte array to encode
      * @return A string containing the resulting Base32768 encoded characters.
      */
@@ -154,7 +158,7 @@ public class Base32768Encoder {
         if (src.length == 0) return "";
 
         final char[] lut15 = CODES15_CHAR;
-        final char[] lut7  = CODES7_CHAR;
+        final char[] lut7 = CODES7_CHAR;
 
         final int srcLen = src.length;
         final int outLen = (int) (((srcLen * 8L) + 14L) / 15);
@@ -168,14 +172,14 @@ public class Base32768Encoder {
             long hi = (long) VH_LONG_BE.get(src, i);
             long lo = (long) VH_LONG_BE.get(src, i + 7);
 
-            out[oi]     = lut15[(int)(hi >>> 49)];
-            out[oi + 1] = lut15[(int)(hi >>> 34) & 0x7FFF];
-            out[oi + 2] = lut15[(int)(hi >>> 19) & 0x7FFF];
-            out[oi + 3] = lut15[(int)(hi >>> 4)  & 0x7FFF];
-            out[oi + 4] = lut15[(int)(((hi & 0xFL) << 11) | ((lo >>> 45) & 0x7FFL))];
-            out[oi + 5] = lut15[(int)(lo >>> 30) & 0x7FFF];
-            out[oi + 6] = lut15[(int)(lo >>> 15) & 0x7FFF];
-            out[oi + 7] = lut15[(int) lo         & 0x7FFF];
+            out[oi] = lut15[(int) (hi >>> 49)];
+            out[oi + 1] = lut15[(int) (hi >>> 34) & 0x7FFF];
+            out[oi + 2] = lut15[(int) (hi >>> 19) & 0x7FFF];
+            out[oi + 3] = lut15[(int) (hi >>> 4) & 0x7FFF];
+            out[oi + 4] = lut15[(int) (((hi & 0xFL) << 11) | ((lo >>> 45) & 0x7FFL))];
+            out[oi + 5] = lut15[(int) (lo >>> 30) & 0x7FFF];
+            out[oi + 6] = lut15[(int) (lo >>> 15) & 0x7FFF];
+            out[oi + 7] = lut15[(int) lo & 0x7FFF];
 
             i += 15;
             oi += 8;
@@ -191,18 +195,18 @@ public class Base32768Encoder {
 
             if (bitCount >= 15) {
                 bitCount -= 15;
-                out[oi++] = lut15[(int)((acc >>> bitCount) & 0x7FFF)];
+                out[oi++] = lut15[(int) ((acc >>> bitCount) & 0x7FFF)];
                 acc &= (1L << bitCount) - 1L;
             }
         }
 
         // 端数処理
         if (bitCount >= 8) {
-            int v = (int)(acc << (15 - bitCount));
+            int v = (int) (acc << (15 - bitCount));
             v |= 0x7F >>> (bitCount - 8);
             out[oi++] = lut15[v];
         } else if (bitCount > 0) {
-            int v = (int)(acc << (7 - bitCount));
+            int v = (int) (acc << (7 - bitCount));
             v |= 0x3F >>> (bitCount - 1);
             out[oi++] = lut7[v];
         }
@@ -212,6 +216,7 @@ public class Base32768Encoder {
 
     /**
      * Not yet implemented.
+     *
      * @param os Not yet implemented.
      * @return Not yet implemented.
      * @throws UnsupportedOperationException Always throw this because not yet implemented.

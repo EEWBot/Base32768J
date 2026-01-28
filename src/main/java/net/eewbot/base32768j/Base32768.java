@@ -16,6 +16,7 @@ public class Base32768 {
 
     /**
      * Returns a {@link Base32768Encoder}.
+     *
      * @return A base32768 encoder.
      */
     public static Base32768Encoder getEncoder() {
@@ -24,6 +25,7 @@ public class Base32768 {
 
     /**
      * Returns a {@link Base32768Decoder}.
+     *
      * @return A base32768 decoder.
      */
     public static Base32768Decoder getDecoder() {

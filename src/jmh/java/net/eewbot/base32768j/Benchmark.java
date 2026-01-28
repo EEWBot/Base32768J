@@ -13,21 +13,11 @@ public class Benchmark {
     private static final Base32768Encoder encoder = Base32768.getEncoder();
     private static final Base32768Decoder decoder = Base32768.getDecoder();
 
-    @Param({
-            "32", "64", "128", "256", "512",
-            "1024", "2048", "4096", "8192",
-            "16384", "32768", "65536", "131072",
-            "262144",
-            "524288",
-//            "1000000"
-            "1048576", "2097152",
-            "4194304", "8388608"
-    })
+    @Param({"32", "64", "128", "256", "512", "1024", "2048", "4096", "8192", "16384", "32768", "65536", "131072", "262144", "524288", "1048576", "2097152", "4194304", "8388608"})
     public int size;
 
     @Param({"NONE", /* "FORCE_LAST7" */})
     public String tailMode;
-
 
     @Param({"789"})
     public long seed;
@@ -61,7 +51,7 @@ public class Benchmark {
 
         while (i + 4 <= n) {
             int x = r.nextInt();
-            dst[i]     = (byte) x;
+            dst[i] = (byte) x;
             dst[i + 1] = (byte) (x >>> 8);
             dst[i + 2] = (byte) (x >>> 16);
             dst[i + 3] = (byte) (x >>> 24);
