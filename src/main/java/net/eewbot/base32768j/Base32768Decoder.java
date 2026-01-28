@@ -19,7 +19,8 @@ public class Base32768Decoder {
 
     private static final int TABLE_SIZE = 0xa840 + 32; // 43104 (max CODES_15 codepoint + 32)
     private static final char[] DECODE = new char[TABLE_SIZE];
-    private static final byte[] LAST_BITS = new byte[TABLE_SIZE];
+    private static final int LAST_BITS_SIZE = (0xa840 >> 5) + 1; // 1347
+    private static final byte[] LAST_BITS = new byte[LAST_BITS_SIZE];
 
     private static final VarHandle VH_LONG_BE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
 
@@ -30,10 +31,10 @@ public class Base32768Decoder {
         for (int i = 0; i < Base32768Encoder.CODES_7.length; i++) {
             int base = i << 5;                 // 0..127
             int cp0 = Base32768Encoder.CODES_7[i];
+            LAST_BITS[cp0 >> 5] = 7;
             for (int lo = 0; lo < 32; lo++) {
                 int cp = cp0 + lo;
                 DECODE[cp] = (char) (FLAG7 | (base + lo)); // bit15=1 を7bitフラグに
-                LAST_BITS[cp] = 7;
             }
         }
 
@@ -41,10 +42,10 @@ public class Base32768Decoder {
         for (int i = 0; i < Base32768Encoder.CODES_15.length; i++) {
             int base = i << 5;                 // 0..32767
             int cp0 = Base32768Encoder.CODES_15[i];
+            LAST_BITS[cp0 >> 5] = 15;
             for (int lo = 0; lo < 32; lo++) {
                 int cp = cp0 + lo;
                 DECODE[cp] = (char) (base + lo);        // bit15=0
-                LAST_BITS[cp] = 15;
             }
         }
     }
@@ -53,7 +54,8 @@ public class Base32768Decoder {
         if (src.isEmpty()) return 0;
         final int n = src.length();
         final char last = src.charAt(n - 1);
-        final int lastBits = (last < TABLE_SIZE) ? (LAST_BITS[last] & 0xFF) : 0;
+        final int block = last >> 5;
+        final int lastBits = (block < LAST_BITS_SIZE) ? (LAST_BITS[block] & 0xFF) : 0;
         if (lastBits == 0) throw new IllegalBase32768TextException(n - 1, last);
         return ((n - 1) * 15 + lastBits) >>> 3;
     }
@@ -125,7 +127,8 @@ public class Base32768Decoder {
         if (n == 0) return new byte[0];
 
         final char last = src.charAt(n - 1);
-        final int lastBits = (last < TABLE_SIZE) ? (LAST_BITS[last] & 0xFF) : 0;
+        final int block = last >> 5;
+        final int lastBits = (block < LAST_BITS_SIZE) ? (LAST_BITS[block] & 0xFF) : 0;
         if (lastBits == 0) throw new IllegalBase32768TextException(n - 1, last);
 
         final int outLen = ((n - 1) * 15 + lastBits) >>> 3;
