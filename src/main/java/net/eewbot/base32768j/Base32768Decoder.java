@@ -14,13 +14,12 @@ import java.util.Arrays;
 public class Base32768Decoder {
     Base32768Decoder() {}
 
-    private static final int SEVEN_BITS_CP_FINAL = 0x29F;
-
     private static final char INVALID = 0xFFFF;
     private static final char FLAG7 = 0x8000;
 
-    private static final char[] DECODE = new char[1 << 16];
-    private static final byte[] LAST_BITS = new byte[1 << 16];
+    private static final int TABLE_SIZE = 0xa840 + 32; // 43104 (max CODES_15 codepoint + 32)
+    private static final char[] DECODE = new char[TABLE_SIZE];
+    private static final byte[] LAST_BITS = new byte[TABLE_SIZE];
 
     private static final VarHandle VH_LONG_BE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
 
@@ -48,22 +47,15 @@ public class Base32768Decoder {
                 LAST_BITS[cp] = 15;
             }
         }
-
-        // surrogate 明示無効化
-        for (int cp = 0xD800; cp <= 0xDFFF; cp++) {
-            DECODE[cp] = INVALID;
-            LAST_BITS[cp] = 0;
-        }
     }
 
     private static int calcBufferLength(String src) {
-        int srcCodePointCount = src.codePointCount(0, src.length());
-
-        int offset = src.offsetByCodePoints(0, srcCodePointCount - 1);
-        int lastCodePoint = src.codePointAt(offset);
-        boolean isSevenBitsCode = lastCodePoint <= SEVEN_BITS_CP_FINAL;
-
-        return (isSevenBitsCode ? (srcCodePointCount - 1) * 15 + 7 : srcCodePointCount * 15) / 8;
+        if (src.isEmpty()) return 0;
+        final int n = src.length();
+        final char last = src.charAt(n - 1);
+        final int lastBits = (last < TABLE_SIZE) ? (LAST_BITS[last] & 0xFF) : 0;
+        if (lastBits == 0) throw new IllegalBase32768TextException(n - 1, last);
+        return ((n - 1) * 15 + lastBits) >>> 3;
     }
 
     /**
@@ -133,7 +125,7 @@ public class Base32768Decoder {
         if (n == 0) return new byte[0];
 
         final char last = src.charAt(n - 1);
-        final int lastBits = LAST_BITS[last] & 0xFF;
+        final int lastBits = (last < TABLE_SIZE) ? (LAST_BITS[last] & 0xFF) : 0;
         if (lastBits == 0) throw new IllegalBase32768TextException(n - 1, last);
 
         final int outLen = ((n - 1) * 15 + lastBits) >>> 3;
@@ -254,7 +246,6 @@ public class Base32768Decoder {
 
         if (bitCount > 0 && (acc & ((1L << bitCount) - 1)) != ((1L << bitCount) - 1)) {
             long actual = acc & ((1L << bitCount) - 1);
-            long expected = (1L << bitCount) - 1;
             throw new IllegalBase32768TextException("Bad padding at position " + (n - 1) + ": expected " + bitCount + " bits of 1s, got 0b" + Long.toBinaryString(actual));
         }
 
