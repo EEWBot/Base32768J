@@ -1,4 +1,3 @@
-import org.gradle.kotlin.dsl.register
 import org.jreleaser.model.Active
 
 plugins {
