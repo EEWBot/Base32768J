@@ -189,6 +189,7 @@ public class Base32768Decoder {
         long acc = 0L;
         int bitCount = 0;
 
+        // ---- Fast Path (2文字): 2文字(=30bit) -> 3バイト + 余り6bit ----
         final int fast2Limit = end - 1; // 2文字取れる限界（lastは除外）
         while (si < fast2Limit) {
             final int v0 = decode[src.charAt(si)];
@@ -254,9 +255,7 @@ public class Base32768Decoder {
         if (bitCount > 0 && (acc & ((1L << bitCount) - 1)) != ((1L << bitCount) - 1)) {
             long actual = acc & ((1L << bitCount) - 1);
             long expected = (1L << bitCount) - 1;
-            throw new IllegalBase32768TextException(
-                "Bad padding at position " + (n - 1) + ": expected " + bitCount + " bits of 1s, got 0b" + Long.toBinaryString(actual)
-            );
+            throw new IllegalBase32768TextException("Bad padding at position " + (n - 1) + ": expected " + bitCount + " bits of 1s, got 0b" + Long.toBinaryString(actual));
         }
 
         return out;
