@@ -4,40 +4,66 @@ import net.eewbot.base32768j.exception.BufferTooSmallException;
 import net.eewbot.base32768j.exception.IllegalBase32768TextException;
 
 import java.io.InputStream;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Arrays;
 
 public class Base32768Decoder {
     Base32768Decoder() {}
 
-    private static final int SEVEN_BITS_CP_FINAL = 0x29F;
-    private static final Map<Integer, Integer> TABLE = new HashMap<>() {
-        {
-            for (int i = 0; i < Base32768Encoder.CODES_7.length; i++) {
-                put(Base32768Encoder.CODES_7[i], i * 32);
-            }
+    private static final char INVALID = 0xFFFF;
+    private static final char FLAG7 = 0x8000;
 
-            for (int i = 0; i < Base32768Encoder.CODES_15.length; i++) {
-                put(Base32768Encoder.CODES_15[i], i * 32);
+    private static final int TABLE_SIZE = 0xa840 + 32; // 43104 (max CODES_15 codepoint + 32)
+    private static final char[] DECODE = new char[TABLE_SIZE];
+    private static final int LAST_BITS_SIZE = (0xa840 >> 5) + 1; // 1347
+    private static final byte[] LAST_BITS = new byte[LAST_BITS_SIZE];
+
+    private static final VarHandle VH_LONG_BE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
+
+    static {
+        Arrays.fill(DECODE, INVALID);
+
+        // Build reverse lookup tables from Unicode ranges
+        int idx = 0;
+
+        // 7-bit blocks (valid only at end of input)
+        for (int[] range : Base32768Encoder.CODES_7_RANGES) {
+            for (int cp = range[0]; cp <= range[1]; cp++) {
+                DECODE[cp] = (char) (FLAG7 | idx);
+                LAST_BITS[cp >> 5] = 7;
+                idx++;
             }
         }
-    };
+
+        // 15-bit blocks (valid anywhere)
+        idx = 0;
+        for (int[] range : Base32768Encoder.CODES_15_RANGES) {
+            for (int cp = range[0]; cp <= range[1]; cp++) {
+                DECODE[cp] = (char) idx;
+                LAST_BITS[cp >> 5] = 15;
+                idx++;
+            }
+        }
+    }
 
     private static int calcBufferLength(String src) {
-        int srcCodePointCount = src.codePointCount(0, src.length());
-
-        int offset = src.offsetByCodePoints(0, srcCodePointCount - 1);
-        int lastCodePoint = src.codePointAt(offset);
-        boolean isSevenBitsCode = lastCodePoint <= SEVEN_BITS_CP_FINAL;
-
-        return (isSevenBitsCode ? (srcCodePointCount - 1) * 15 + 7 : srcCodePointCount * 15) / 8;
+        if (src.isEmpty()) return 0;
+        final int n = src.length();
+        final char last = src.charAt(n - 1);
+        final int block = last >> 5;
+        final int lastBits = (block < LAST_BITS_SIZE) ? (LAST_BITS[block] & 0xFF) : 0;
+        if (lastBits == 0) throw new IllegalBase32768TextException(n - 1, last);
+        return ((n - 1) * 15 + lastBits) >>> 3;
     }
 
     /**
      * Decodes all bytes from the input byte array using the {@link Base32768} encoding scheme, writing the results into
      * a newly-allocated output byte array. The returned byte array is of the length of the resulting bytes.
+     *
      * @param src the byte array to decode
      * @return A newly-allocated byte array containing the decoded bytes.
      * @throws IllegalBase32768TextException if src is not in valid Base32768 scheme.
@@ -52,11 +78,12 @@ public class Base32768Decoder {
      * It is the responsibility of the invoker of this method to make sure the output byte array dst has enough space
      * for decoding all bytes from the input byte array. No bytes will be written to the output byte array if the output
      * byte array is not big enough.
+     *
      * @param src the byte array to decode
      * @param dst the output byte array
      * @return The number of bytes written to the output byte array
      * @throws IllegalBase32768TextException if src is not in valid Base32768 scheme.
-     * @throws BufferTooSmallException if dst does not have enough space for decoding all input bytes.
+     * @throws BufferTooSmallException       if dst does not have enough space for decoding all input bytes.
      */
     public int decode(byte[] src, byte[] dst) {
         String srcString = new String(src, StandardCharsets.UTF_8);
@@ -77,6 +104,7 @@ public class Base32768Decoder {
      * The returned output buffer's position will be zero and its limit will be the number of resulting decoded bytes.
      * IllegalBase32768TextException is thrown if the input buffer is not in valid Base32768 encoding scheme.
      * The position of the input buffer will not be advanced in this case.
+     *
      * @param buffer the ByteBuffer to decode
      * @return A newly-allocated byte buffer containing the decoded bytes
      * @throws IllegalBase32768TextException if src is not in valid Base32768 scheme.
@@ -89,54 +117,164 @@ public class Base32768Decoder {
 
     /**
      * Decode a Base32768 encoded String into a newly-allocated byte array using the {@link Base32768} encoding scheme.
+     *
      * @param src the string to decode
      * @return A newly-allocated byte array containing the decoded bytes.
      * @throws IllegalBase32768TextException if src is not in valid Base32768 scheme
      */
     public byte[] decode(String src) {
-        if (src.isEmpty()) return new byte[0];
+        final int n = src.length();
+        if (n == 0) return new byte[0];
 
-        int srcCodePointCount = src.codePointCount(0, src.length());
-        byte[] bytes = new byte[calcBufferLength(src)];
+        final char last = src.charAt(n - 1);
+        final int block = last >> 5;
+        final int lastBits = (block < LAST_BITS_SIZE) ? (LAST_BITS[block] & 0xFF) : 0;
+        if (lastBits == 0) throw new IllegalBase32768TextException(n - 1, last);
 
-        // Multithread-safeではない
-        final var ref = new Object() {
-            int srcIndex = 0;
-            int dstIndex = 0;
-            int buf = 0;
-            int bufCount = 0;
-        };
-        src.codePoints().forEachOrdered(codePoint -> {
-            Integer byteBase = TABLE.get(codePoint & ~31);
-            if (byteBase == null) throw new IllegalBase32768TextException(ref.srcIndex + 1, codePoint);
+        final int outLen = ((n - 1) * 15 + lastBits) >>> 3;
+        final byte[] out = new byte[outLen];
 
-            if (codePoint <= SEVEN_BITS_CP_FINAL) {
-                if (ref.srcIndex != srcCodePointCount - 1) throw new IllegalBase32768TextException(codePoint);
-                ref.buf = (ref.buf << 7) + byteBase + codePoint % 32;
-                ref.bufCount += 7;
-            } else {
-                ref.buf = (ref.buf << 15) + byteBase + codePoint % 32;
-                ref.bufCount += 15;
+        final char[] decode = DECODE;
+
+        int oi = 0;
+        int si = 0;
+
+        // ---- Fast Path: 8文字(=120bit) -> 15バイト固定出力 ----
+        // end までのうち、8文字単位で回す（last は含めない）
+        final int end = n - 1;
+        final int fastEnd = end & ~7;
+        while (si < fastEnd) {
+            int v0 = decode[src.charAt(si)];
+            int v1 = decode[src.charAt(si + 1)];
+            int v2 = decode[src.charAt(si + 2)];
+            int v3 = decode[src.charAt(si + 3)];
+            int v4 = decode[src.charAt(si + 4)];
+            int v5 = decode[src.charAt(si + 5)];
+            int v6 = decode[src.charAt(si + 6)];
+            int v7 = decode[src.charAt(si + 7)];
+
+            int m = v0 | v1 | v2 | v3 | v4 | v5 | v6 | v7;
+            if ((m & 0x8000) != 0) {
+                throwDetailedException(src, si, v0, v1, v2, v3, v4, v5, v6, v7);
             }
 
-            ++ref.srcIndex;
+            // w0: v0, v1, v2, v3, v4上位4ビット
+            long w0 = ((long) v0 << 49)
+                | ((long) v1 << 34)
+                | ((long) v2 << 19)
+                | ((long) v3 << 4)
+                | (v4 >>> 11);
 
-            while (ref.bufCount >= 8) {
-                int offset = ref.bufCount - 8;
-                byte b = (byte) (ref.buf >> offset);
-                ref.buf &= (1 << offset) - 1;
-                ref.bufCount -= 8;
-                bytes[ref.dstIndex++] = b;
+            // w1: out[7]と同じバイトから始める
+            // out[7] = w0 & 0xFF なので、それを最上位に
+            // 残りは v4(下位11), v5, v6, v7 を詰める
+            long w1 = ((w0 & 0xFF) << 56)
+                | ((long) (v4 & 0x7FF) << 45)
+                | ((long) v5 << 30)
+                | ((long) v6 << 15)
+                | (long) v7;
+
+            VH_LONG_BE.set(out, oi, w0);
+            VH_LONG_BE.set(out, oi + 7, w1);
+
+            si += 8;
+            oi += 15;
+        }
+
+        long acc = 0L;
+        int bitCount = 0;
+
+        // ---- Fast Path (2文字): 2文字(=30bit) -> 3バイト + 余り6bit ----
+        final int fast2Limit = end - 1; // 2文字取れる限界（lastは除外）
+        while (si < fast2Limit) {
+            final int v0 = decode[src.charAt(si)];
+            final int v1 = decode[src.charAt(si + 1)];
+
+            // INVALID == 0xFFFF, valid values are 0..0x7FFF only
+            if (((v0 | v1) & 0x8000) != 0) {
+                int offset = (v0 & 0x8000) != 0 ? 0 : 1;
+                int v = offset == 0 ? v0 : v1;
+                throwForInvalidValue(si + offset, src.charAt(si + offset), v);
             }
-        });
 
-        if (ref.bufCount > 0 && ref.buf != (1 << ref.bufCount) - 1)
-            throw new IllegalBase32768TextException("Bad padding");
+            acc = (acc << 30) | ((long) v0 << 15) | (long) v1;
+            bitCount += 30;
 
-        return bytes;
+            out[oi] = (byte) (acc >>> (bitCount - 8));
+            out[oi + 1] = (byte) (acc >>> (bitCount - 16));
+            out[oi + 2] = (byte) (acc >>> (bitCount - 24));
+            oi += 3;
+            bitCount -= 24;
+
+            if (bitCount >= 8) {
+                out[oi++] = (byte) (acc >>> (bitCount - 8));
+                bitCount -= 8;
+            }
+
+            si += 2;
+        }
+
+        if (si < end) {
+            final int v = decode[src.charAt(si)];
+            if ((v & 0x8000) != 0) {
+                throwForInvalidValue(si, src.charAt(si), v);
+            }
+
+            acc = (acc << 15) | v;
+            bitCount += 15;
+
+            out[oi++] = (byte) (acc >>> (bitCount - 8));
+            bitCount -= 8;
+            if (bitCount >= 8) {
+                out[oi++] = (byte) (acc >>> (bitCount - 8));
+                bitCount -= 8;
+            }
+        }
+
+        {
+            int v = decode[last];
+            if (v == INVALID) {
+                throw new IllegalBase32768TextException(n - 1, last);
+            }
+            v &= 0x7FFF; // strip 7-bit flag if present
+
+            acc = (acc << lastBits) | (long) v;
+            bitCount += lastBits;
+
+            while (bitCount >= 8) {
+                bitCount -= 8;
+                out[oi++] = (byte) (acc >>> bitCount);
+            }
+        }
+
+        if (bitCount > 0 && (acc & ((1L << bitCount) - 1)) != ((1L << bitCount) - 1)) {
+            long actual = acc & ((1L << bitCount) - 1);
+            throw new IllegalBase32768TextException("Bad padding at position " + (n - 1) + ": expected " + bitCount + " bits of 1s, got 0b" + Long.toBinaryString(actual));
+        }
+
+        return out;
     }
 
     public InputStream wrap(InputStream is) {
         throw new UnsupportedOperationException("Not yet implemented");
+    }
+
+    private static void throwForInvalidValue(int position, char ch, int decodedValue) {
+        if (decodedValue == INVALID) {
+            throw new IllegalBase32768TextException(position, ch);
+        } else {
+            throw new IllegalBase32768TextException("7-bit code point at non-final position " + position + ": " + (int) ch);
+        }
+    }
+
+    private static void throwDetailedException(String src, int si, int v0, int v1, int v2, int v3, int v4, int v5, int v6, int v7) {
+        int[] vals = {v0, v1, v2, v3, v4, v5, v6, v7};
+        for (int i = 0; i < 8; i++) {
+            if ((vals[i] & 0x8000) != 0) {
+                throwForInvalidValue(si + i, src.charAt(si + i), vals[i]);
+            }
+        }
+        // Should never reach here
+        throw new IllegalBase32768TextException("Invalid Base32768 text");
     }
 }
