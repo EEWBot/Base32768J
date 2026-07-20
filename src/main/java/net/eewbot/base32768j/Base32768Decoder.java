@@ -24,6 +24,10 @@ public class Base32768Decoder {
 
     private static final VarHandle VH_LONG_BE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
 
+    // decode(String) で String.getChars による一括展開に切り替える入力長 (文字数) の閾値。
+    // これ未満では char[] 確保+コピーの固定コストが charAt 呼び出し削減の利得を上回る (実測: 256B入力で -4%, 1KiB入力で +27%)
+    private static final int GETCHARS_THRESHOLD = 512;
+
     static {
         Arrays.fill(DECODE, INVALID);
 
@@ -125,6 +129,101 @@ public class Base32768Decoder {
     public byte[] decode(String src) {
         final int n = src.length();
         if (n == 0) return new byte[0];
+        return decodeBulk(src);
+    }
+
+    byte[] decodeScalar(String src) {
+        final int n = src.length();
+
+        final char last = src.charAt(n - 1);
+        final int block = last >> 5;
+        final int lastBits = (block < LAST_BITS_SIZE) ? (LAST_BITS[block] & 0xFF) : 0;
+        if (lastBits == 0) throw new IllegalBase32768TextException(n - 1, last);
+
+        final int outLen = ((n - 1) * 15 + lastBits) >>> 3;
+        final byte[] out = new byte[outLen];
+
+        final char[] decode = DECODE;
+
+        int oi = 0;
+        int si = 0;
+        final int end = n - 1;
+
+        long acc = 0L;
+        int bitCount = 0;
+
+        // 2文字(=30bit) -> 3バイト + 余り6bit
+        final int fast2Limit = end - 1;
+        while (si < fast2Limit) {
+            final int v0 = decode[src.charAt(si)];
+            final int v1 = decode[src.charAt(si + 1)];
+
+            if (((v0 | v1) & 0x8000) != 0) {
+                int offset = (v0 & 0x8000) != 0 ? 0 : 1;
+                int v = offset == 0 ? v0 : v1;
+                throwForInvalidValue(si + offset, src.charAt(si + offset), v);
+            }
+
+            acc = (acc << 30) | ((long) v0 << 15) | (long) v1;
+            bitCount += 30;
+
+            out[oi] = (byte) (acc >>> (bitCount - 8));
+            out[oi + 1] = (byte) (acc >>> (bitCount - 16));
+            out[oi + 2] = (byte) (acc >>> (bitCount - 24));
+            oi += 3;
+            bitCount -= 24;
+
+            if (bitCount >= 8) {
+                out[oi++] = (byte) (acc >>> (bitCount - 8));
+                bitCount -= 8;
+            }
+
+            si += 2;
+        }
+
+        if (si < end) {
+            final int v = decode[src.charAt(si)];
+            if ((v & 0x8000) != 0) {
+                throwForInvalidValue(si, src.charAt(si), v);
+            }
+
+            acc = (acc << 15) | v;
+            bitCount += 15;
+
+            out[oi++] = (byte) (acc >>> (bitCount - 8));
+            bitCount -= 8;
+            if (bitCount >= 8) {
+                out[oi++] = (byte) (acc >>> (bitCount - 8));
+                bitCount -= 8;
+            }
+        }
+
+        {
+            int v = decode[last];
+            if (v == INVALID) {
+                throw new IllegalBase32768TextException(n - 1, last);
+            }
+            v &= 0x7FFF; // strip 7-bit flag if present
+
+            acc = (acc << lastBits) | (long) v;
+            bitCount += lastBits;
+
+            while (bitCount >= 8) {
+                bitCount -= 8;
+                out[oi++] = (byte) (acc >>> bitCount);
+            }
+        }
+
+        if (bitCount > 0 && (acc & ((1L << bitCount) - 1)) != ((1L << bitCount) - 1)) {
+            long actual = acc & ((1L << bitCount) - 1);
+            throw new IllegalBase32768TextException("Bad padding at position " + (n - 1) + ": expected " + bitCount + " bits of 1s, got 0b" + Long.toBinaryString(actual));
+        }
+
+        return out;
+    }
+
+    byte[] decodeBulk(String src) {
+        final int n = src.length();
 
         final char last = src.charAt(n - 1);
         final int block = last >> 5;
@@ -143,42 +242,140 @@ public class Base32768Decoder {
         // end までのうち、8文字単位で回す（last は含めない）
         final int end = n - 1;
         final int fastEnd = end & ~7;
-        while (si < fastEnd) {
-            int v0 = decode[src.charAt(si)];
-            int v1 = decode[src.charAt(si + 1)];
-            int v2 = decode[src.charAt(si + 2)];
-            int v3 = decode[src.charAt(si + 3)];
-            int v4 = decode[src.charAt(si + 4)];
-            int v5 = decode[src.charAt(si + 5)];
-            int v6 = decode[src.charAt(si + 6)];
-            int v7 = decode[src.charAt(si + 7)];
+        if (n >= GETCHARS_THRESHOLD) {
+            final char[] chars = new char[n];
+            src.getChars(0, n, chars, 0);
 
-            int m = v0 | v1 | v2 | v3 | v4 | v5 | v6 | v7;
-            if ((m & 0x8000) != 0) {
-                throwDetailedException(src, si, v0, v1, v2, v3, v4, v5, v6, v7);
+            // 16文字(=240bit) -> 30バイト: 2ブロック展開
+            final int fastEnd16 = end & ~15;
+            while (si < fastEnd16) {
+                int v0 = decode[chars[si]];
+                int v1 = decode[chars[si + 1]];
+                int v2 = decode[chars[si + 2]];
+                int v3 = decode[chars[si + 3]];
+                int v4 = decode[chars[si + 4]];
+                int v5 = decode[chars[si + 5]];
+                int v6 = decode[chars[si + 6]];
+                int v7 = decode[chars[si + 7]];
+                int v8 = decode[chars[si + 8]];
+                int v9 = decode[chars[si + 9]];
+                int v10 = decode[chars[si + 10]];
+                int v11 = decode[chars[si + 11]];
+                int v12 = decode[chars[si + 12]];
+                int v13 = decode[chars[si + 13]];
+                int v14 = decode[chars[si + 14]];
+                int v15 = decode[chars[si + 15]];
+
+                int m0 = v0 | v1 | v2 | v3 | v4 | v5 | v6 | v7;
+                int m1 = v8 | v9 | v10 | v11 | v12 | v13 | v14 | v15;
+                if (((m0 | m1) & 0x8000) != 0) {
+                    if ((m0 & 0x8000) != 0) {
+                        throwDetailedException(src, si, v0, v1, v2, v3, v4, v5, v6, v7);
+                    }
+                    throwDetailedException(src, si + 8, v8, v9, v10, v11, v12, v13, v14, v15);
+                }
+
+                long w0 = ((long) v0 << 49)
+                    | ((long) v1 << 34)
+                    | ((long) v2 << 19)
+                    | ((long) v3 << 4)
+                    | (v4 >>> 11);
+                long w1 = ((w0 & 0xFF) << 56)
+                    | ((long) (v4 & 0x7FF) << 45)
+                    | ((long) v5 << 30)
+                    | ((long) v6 << 15)
+                    | (long) v7;
+                long w2 = ((long) v8 << 49)
+                    | ((long) v9 << 34)
+                    | ((long) v10 << 19)
+                    | ((long) v11 << 4)
+                    | (v12 >>> 11);
+                long w3 = ((w2 & 0xFF) << 56)
+                    | ((long) (v12 & 0x7FF) << 45)
+                    | ((long) v13 << 30)
+                    | ((long) v14 << 15)
+                    | (long) v15;
+
+                VH_LONG_BE.set(out, oi, w0);
+                VH_LONG_BE.set(out, oi + 7, w1);
+                VH_LONG_BE.set(out, oi + 15, w2);
+                VH_LONG_BE.set(out, oi + 22, w3);
+
+                si += 16;
+                oi += 30;
             }
 
-            // w0: v0, v1, v2, v3, v4上位4ビット
-            long w0 = ((long) v0 << 49)
-                | ((long) v1 << 34)
-                | ((long) v2 << 19)
-                | ((long) v3 << 4)
-                | (v4 >>> 11);
+            while (si < fastEnd) {
+                int v0 = decode[chars[si]];
+                int v1 = decode[chars[si + 1]];
+                int v2 = decode[chars[si + 2]];
+                int v3 = decode[chars[si + 3]];
+                int v4 = decode[chars[si + 4]];
+                int v5 = decode[chars[si + 5]];
+                int v6 = decode[chars[si + 6]];
+                int v7 = decode[chars[si + 7]];
 
-            // w1: out[7]と同じバイトから始める
-            // out[7] = w0 & 0xFF なので、それを最上位に
-            // 残りは v4(下位11), v5, v6, v7 を詰める
-            long w1 = ((w0 & 0xFF) << 56)
-                | ((long) (v4 & 0x7FF) << 45)
-                | ((long) v5 << 30)
-                | ((long) v6 << 15)
-                | (long) v7;
+                int m = v0 | v1 | v2 | v3 | v4 | v5 | v6 | v7;
+                if ((m & 0x8000) != 0) {
+                    throwDetailedException(src, si, v0, v1, v2, v3, v4, v5, v6, v7);
+                }
 
-            VH_LONG_BE.set(out, oi, w0);
-            VH_LONG_BE.set(out, oi + 7, w1);
+                // w0: v0, v1, v2, v3, v4上位4ビット
+                long w0 = ((long) v0 << 49)
+                    | ((long) v1 << 34)
+                    | ((long) v2 << 19)
+                    | ((long) v3 << 4)
+                    | (v4 >>> 11);
 
-            si += 8;
-            oi += 15;
+                // w1: out[7]と同じバイトから始める
+                // out[7] = w0 & 0xFF なので、それを最上位に
+                // 残りは v4(下位11), v5, v6, v7 を詰める
+                long w1 = ((w0 & 0xFF) << 56)
+                    | ((long) (v4 & 0x7FF) << 45)
+                    | ((long) v5 << 30)
+                    | ((long) v6 << 15)
+                    | (long) v7;
+
+                VH_LONG_BE.set(out, oi, w0);
+                VH_LONG_BE.set(out, oi + 7, w1);
+
+                si += 8;
+                oi += 15;
+            }
+        } else {
+            while (si < fastEnd) {
+                int v0 = decode[src.charAt(si)];
+                int v1 = decode[src.charAt(si + 1)];
+                int v2 = decode[src.charAt(si + 2)];
+                int v3 = decode[src.charAt(si + 3)];
+                int v4 = decode[src.charAt(si + 4)];
+                int v5 = decode[src.charAt(si + 5)];
+                int v6 = decode[src.charAt(si + 6)];
+                int v7 = decode[src.charAt(si + 7)];
+
+                int m = v0 | v1 | v2 | v3 | v4 | v5 | v6 | v7;
+                if ((m & 0x8000) != 0) {
+                    throwDetailedException(src, si, v0, v1, v2, v3, v4, v5, v6, v7);
+                }
+
+                long w0 = ((long) v0 << 49)
+                    | ((long) v1 << 34)
+                    | ((long) v2 << 19)
+                    | ((long) v3 << 4)
+                    | (v4 >>> 11);
+
+                long w1 = ((w0 & 0xFF) << 56)
+                    | ((long) (v4 & 0x7FF) << 45)
+                    | ((long) v5 << 30)
+                    | ((long) v6 << 15)
+                    | (long) v7;
+
+                VH_LONG_BE.set(out, oi, w0);
+                VH_LONG_BE.set(out, oi + 7, w1);
+
+                si += 8;
+                oi += 15;
+            }
         }
 
         long acc = 0L;

@@ -118,7 +118,10 @@ public class Base32768Encoder {
      */
     public String encodeToString(byte[] src) {
         if (src.length == 0) return "";
+        return encodeBulk(src);
+    }
 
+    String encodeScalar(byte[] src) {
         final char[] lut15 = CODES15_CHAR;
         final char[] lut7 = CODES7_CHAR;
 
@@ -127,6 +130,74 @@ public class Base32768Encoder {
         final char[] out = new char[outLen];
         int oi = 0;
         int i = 0;
+
+        long acc = 0L;
+        int bitCount = 0;
+
+        while (i < srcLen) {
+            acc = (acc << 8) | (src[i++] & 0xFFL);
+            bitCount += 8;
+
+            if (bitCount >= 15) {
+                bitCount -= 15;
+                out[oi++] = lut15[(int) ((acc >>> bitCount) & 0x7FFF)];
+                acc &= (1L << bitCount) - 1L;
+            }
+        }
+
+        // 端数処理
+        if (bitCount >= 8) {
+            int v = (int) (acc << (15 - bitCount));
+            v |= 0x7F >>> (bitCount - 8);
+            out[oi++] = lut15[v];
+        } else if (bitCount > 0) {
+            int v = (int) (acc << (7 - bitCount));
+            v |= 0x3F >>> (bitCount - 1);
+            out[oi++] = lut7[v];
+        }
+
+        return new String(out);
+    }
+
+    String encodeBulk(byte[] src) {
+        final char[] lut15 = CODES15_CHAR;
+        final char[] lut7 = CODES7_CHAR;
+
+        final int srcLen = src.length;
+        final int outLen = (int) (((srcLen * 8L) + 14L) / 15);
+        final char[] out = new char[outLen];
+        int oi = 0;
+        int i = 0;
+
+        // Fast Path: 30バイト -> 16文字 (2ブロック展開で load/store チェーンの独立性を上げる)
+        final int fastLimit30 = srcLen - 29;
+        while (i < fastLimit30) {
+            long hi0 = (long) VH_LONG_BE.get(src, i);
+            long lo0 = (long) VH_LONG_BE.get(src, i + 7);
+            long hi1 = (long) VH_LONG_BE.get(src, i + 15);
+            long lo1 = (long) VH_LONG_BE.get(src, i + 22);
+
+            out[oi] = lut15[(int) (hi0 >>> 49)];
+            out[oi + 1] = lut15[(int) (hi0 >>> 34) & 0x7FFF];
+            out[oi + 2] = lut15[(int) (hi0 >>> 19) & 0x7FFF];
+            out[oi + 3] = lut15[(int) (hi0 >>> 4) & 0x7FFF];
+            out[oi + 4] = lut15[(int) (((hi0 & 0xFL) << 11) | ((lo0 >>> 45) & 0x7FFL))];
+            out[oi + 5] = lut15[(int) (lo0 >>> 30) & 0x7FFF];
+            out[oi + 6] = lut15[(int) (lo0 >>> 15) & 0x7FFF];
+            out[oi + 7] = lut15[(int) lo0 & 0x7FFF];
+
+            out[oi + 8] = lut15[(int) (hi1 >>> 49)];
+            out[oi + 9] = lut15[(int) (hi1 >>> 34) & 0x7FFF];
+            out[oi + 10] = lut15[(int) (hi1 >>> 19) & 0x7FFF];
+            out[oi + 11] = lut15[(int) (hi1 >>> 4) & 0x7FFF];
+            out[oi + 12] = lut15[(int) (((hi1 & 0xFL) << 11) | ((lo1 >>> 45) & 0x7FFL))];
+            out[oi + 13] = lut15[(int) (lo1 >>> 30) & 0x7FFF];
+            out[oi + 14] = lut15[(int) (lo1 >>> 15) & 0x7FFF];
+            out[oi + 15] = lut15[(int) lo1 & 0x7FFF];
+
+            i += 30;
+            oi += 16;
+        }
 
         // Fast Path: 15バイト -> 8文字
         final int fastLimit = srcLen - 14;
