@@ -109,5 +109,16 @@ public class Base32768DecoderTest {
         Assertions.assertEquals(prefix.length, ng.position());
     }
 
+    @org.junit.jupiter.api.Test
+    void outputLengthDoesNotOverflowForHugeInputs() {
+        // (n - 1) * 15 overflows int here, and the old int formula gave a wrong length beyond ~286M chars.
+        for (int n : new int[] {1, 2, 143_165_577, 300_000_000, 1_073_741_823}) {
+            for (int lastBits : new int[] {7, 15}) {
+                long expected = ((long) (n - 1) * 15 + lastBits) / 8;
+                Assertions.assertEquals(expected, Base32768Decoder.outputLength(n, lastBits), "n=" + n + ", lastBits=" + lastBits);
+            }
+        }
+    }
+
     record SuccessTestCase(String text, byte[] expected) {}
 }

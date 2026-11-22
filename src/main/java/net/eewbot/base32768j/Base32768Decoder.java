@@ -56,7 +56,18 @@ public class Base32768Decoder {
         if (src.isEmpty()) return 0;
         final int n = src.length();
         final char last = src.charAt(n - 1);
-        return ((n - 1) * 15 + lastBits(n - 1, last, DECODE[last])) >>> 3;
+        return outputLength(n, lastBits(n - 1, last, DECODE[last]));
+    }
+
+    /**
+     * Number of decoded bytes for n characters whose final character carries lastBits bits.
+     * Computed in long: (n - 1) * 15 overflows int beyond ~143M characters, and the int result
+     * is wrong beyond ~286M characters. The result itself always fits in int: exceeding
+     * Integer.MAX_VALUE bytes would need more than ~1.14G characters, but a UTF-16 String holds
+     * at most ~1.07G.
+     */
+    static int outputLength(int n, int lastBits) {
+        return (int) (((n - 1L) * 15L + lastBits) >>> 3);
     }
 
     /**
@@ -143,7 +154,7 @@ public class Base32768Decoder {
         final int lastValue = decode[last];
         final int lastBits = lastBits(n - 1, last, lastValue);
 
-        final int outLen = ((n - 1) * 15 + lastBits) >>> 3;
+        final int outLen = outputLength(n, lastBits);
         final byte[] out = new byte[outLen];
 
         int oi = 0;
