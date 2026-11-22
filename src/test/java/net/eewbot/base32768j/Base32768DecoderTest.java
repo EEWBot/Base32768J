@@ -85,5 +85,29 @@ public class Base32768DecoderTest {
         }
     }
 
+    @org.junit.jupiter.api.Test
+    void decodeByteBufferAdvancesPositionOnlyOnSuccess() {
+        byte[] payload = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17};
+        byte[] encoded = Base32768.getEncoder().encode(payload);
+        byte[] prefix = {42, 42, 42};
+
+        // Valid input after a non-zero position: decodes only the remaining bytes, then position == limit.
+        java.nio.ByteBuffer ok = java.nio.ByteBuffer.allocate(prefix.length + encoded.length);
+        ok.put(prefix).put(encoded).position(prefix.length);
+        java.nio.ByteBuffer result = Base32768.getDecoder().decode(ok);
+        Assertions.assertEquals(ok.limit(), ok.position());
+        Assertions.assertEquals(0, result.position());
+        byte[] actual = new byte[result.remaining()];
+        result.get(actual);
+        Assertions.assertArrayEquals(payload, actual);
+
+        // Invalid input: the exception is thrown and the position is not advanced.
+        byte[] bad = "\u0000".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        java.nio.ByteBuffer ng = java.nio.ByteBuffer.allocate(prefix.length + bad.length);
+        ng.put(prefix).put(bad).position(prefix.length);
+        Assertions.assertThrows(Base32768Exception.class, () -> Base32768.getDecoder().decode(ng));
+        Assertions.assertEquals(prefix.length, ng.position());
+    }
+
     record SuccessTestCase(String text, byte[] expected) {}
 }

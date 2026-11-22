@@ -118,9 +118,12 @@ public class Base32768Decoder {
      * @throws IllegalBase32768TextException if src is not in valid Base32768 scheme.
      */
     public ByteBuffer decode(ByteBuffer buffer) {
+        // Absolute get: the position is advanced only after decoding succeeds, as documented above.
         byte[] src = new byte[buffer.remaining()];
-        buffer.get(src);
-        return ByteBuffer.wrap(decode(src));
+        buffer.get(buffer.position(), src);
+        ByteBuffer result = ByteBuffer.wrap(decode(src));
+        buffer.position(buffer.limit());
+        return result;
     }
 
     /**
