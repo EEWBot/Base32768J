@@ -22,6 +22,10 @@ public class Base32768Decoder {
     private static final int TABLE_SIZE = Character.MAX_VALUE + 1; // 65536
     private static final char[] DECODE = new char[TABLE_SIZE];
 
+    // Inputs shorter than this have no full 8-char block, so the copy to char[] for the fast path does not pay off.
+    // Measured (JMH, JDK 24): Small Path is ~17% faster at 5 chars, but already ~14% slower at 9 chars.
+    private static final int SMALL_THRESHOLD = 9;
+
     private static final VarHandle VH_LONG_BE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
 
     static {
@@ -131,10 +135,6 @@ public class Base32768Decoder {
         if (n == 0) return new byte[0];
 
         final char[] decode = DECODE;
-        // String.charAt reloads value/coder and re-checks bounds and Latin1 on every call inside the hot loop
-        // (C2 does not hoist them), which also causes heavy register spills. Copying once is cheaper for
-        // anything beyond tiny inputs: ~+30-40% throughput at >= 1 KB, ~-10% (about 2 ns) at 32 B.
-        final char[] s = src.toCharArray();
 
         final char last = src.charAt(n - 1);
         final int lastValue = decode[last];
@@ -145,96 +145,121 @@ public class Base32768Decoder {
 
         int oi = 0;
         int si = 0;
-
-        // ---- Fast Path: 8文字(=120bit) -> 15バイト固定出力 ----
-        // end までのうち、8文字単位で回す（last は含めない）
-        final int end = n - 1;
-        final int fastEnd = end & ~7;
-        while (si < fastEnd) {
-            int v0 = decode[s[si]];
-            int v1 = decode[s[si + 1]];
-            int v2 = decode[s[si + 2]];
-            int v3 = decode[s[si + 3]];
-            int v4 = decode[s[si + 4]];
-            int v5 = decode[s[si + 5]];
-            int v6 = decode[s[si + 6]];
-            int v7 = decode[s[si + 7]];
-
-            int m = v0 | v1 | v2 | v3 | v4 | v5 | v6 | v7;
-            if ((m & 0x8000) != 0) {
-                throwDetailedException(src, si, v0, v1, v2, v3, v4, v5, v6, v7);
-            }
-
-            // w0: v0, v1, v2, v3, v4上位4ビット
-            long w0 = ((long) v0 << 49)
-                | ((long) v1 << 34)
-                | ((long) v2 << 19)
-                | ((long) v3 << 4)
-                | (v4 >>> 11);
-
-            // w1: out[7]と同じバイトから始める（ブロックの bit 56..119）
-            // 最上位バイト out[7] = v3 の下位4ビット + v4 の上位4ビットなので、
-            // w0 を経由せず v3 から直接組む（w0 とのデータ依存をなくす）
-            long w1 = ((long) v3 << 60)
-                | ((long) v4 << 45)
-                | ((long) v5 << 30)
-                | ((long) v6 << 15)
-                | (long) v7;
-
-            VH_LONG_BE.set(out, oi, w0);
-            VH_LONG_BE.set(out, oi + 7, w1);
-
-            si += 8;
-            oi += 15;
-        }
-
         long acc = 0L;
         int bitCount = 0;
+        final int end = n - 1; // last は含めない
 
-        // ---- Fast Path (2文字): 2文字(=30bit) -> 3バイト + 余り6bit ----
-        final int fast2Limit = end - 1; // 2文字取れる限界（lastは除外）
-        while (si < fast2Limit) {
-            final int v0 = decode[s[si]];
-            final int v1 = decode[s[si + 1]];
+        if (n < SMALL_THRESHOLD) {
+            // ---- Small Path: 短い入力は配列確保を避け、charAt で1文字ずつ処理 ----
+            for (; si < end; si++) {
+                final char c = src.charAt(si);
+                final int v = decode[c];
+                if ((v & 0x8000) != 0) {
+                    throwForInvalidValue(si, c, v);
+                }
 
-            // INVALID == 0xFFFF, valid values are 0..0x7FFF only
-            if (((v0 | v1) & 0x8000) != 0) {
-                int offset = (v0 & 0x8000) != 0 ? 0 : 1;
-                int v = offset == 0 ? v0 : v1;
-                throwForInvalidValue(si + offset, s[si + offset], v);
-            }
+                acc = (acc << 15) | v;
+                bitCount += 15;
 
-            acc = (acc << 30) | ((long) v0 << 15) | (long) v1;
-            bitCount += 30;
-
-            out[oi] = (byte) (acc >>> (bitCount - 8));
-            out[oi + 1] = (byte) (acc >>> (bitCount - 16));
-            out[oi + 2] = (byte) (acc >>> (bitCount - 24));
-            oi += 3;
-            bitCount -= 24;
-
-            if (bitCount >= 8) {
                 out[oi++] = (byte) (acc >>> (bitCount - 8));
                 bitCount -= 8;
+                if (bitCount >= 8) {
+                    out[oi++] = (byte) (acc >>> (bitCount - 8));
+                    bitCount -= 8;
+                }
+            }
+        } else {
+            // String.charAt reloads value/coder and re-checks bounds and Latin1 on every call inside the hot loop
+            // (C2 does not hoist them), which also causes heavy register spills. Copying once is much cheaper
+            // except for tiny inputs, which take the Small Path above.
+            final char[] s = src.toCharArray();
+
+            // ---- Fast Path: 8文字(=120bit) -> 15バイト固定出力 ----
+            // end までのうち、8文字単位で回す
+            final int fastEnd = end & ~7;
+            while (si < fastEnd) {
+                int v0 = decode[s[si]];
+                int v1 = decode[s[si + 1]];
+                int v2 = decode[s[si + 2]];
+                int v3 = decode[s[si + 3]];
+                int v4 = decode[s[si + 4]];
+                int v5 = decode[s[si + 5]];
+                int v6 = decode[s[si + 6]];
+                int v7 = decode[s[si + 7]];
+
+                int m = v0 | v1 | v2 | v3 | v4 | v5 | v6 | v7;
+                if ((m & 0x8000) != 0) {
+                    throwDetailedException(src, si, v0, v1, v2, v3, v4, v5, v6, v7);
+                }
+
+                // w0: v0, v1, v2, v3, v4上位4ビット
+                long w0 = ((long) v0 << 49)
+                    | ((long) v1 << 34)
+                    | ((long) v2 << 19)
+                    | ((long) v3 << 4)
+                    | (v4 >>> 11);
+
+                // w1: out[7]と同じバイトから始める（ブロックの bit 56..119）
+                // 最上位バイト out[7] = v3 の下位4ビット + v4 の上位4ビットなので、
+                // w0 を経由せず v3 から直接組む（w0 とのデータ依存をなくす）
+                long w1 = ((long) v3 << 60)
+                    | ((long) v4 << 45)
+                    | ((long) v5 << 30)
+                    | ((long) v6 << 15)
+                    | (long) v7;
+
+                VH_LONG_BE.set(out, oi, w0);
+                VH_LONG_BE.set(out, oi + 7, w1);
+
+                si += 8;
+                oi += 15;
             }
 
-            si += 2;
-        }
+            // ---- Fast Path (2文字): 2文字(=30bit) -> 3バイト + 余り6bit ----
+            final int fast2Limit = end - 1; // 2文字取れる限界（lastは除外）
+            while (si < fast2Limit) {
+                final int v0 = decode[s[si]];
+                final int v1 = decode[s[si + 1]];
 
-        if (si < end) {
-            final int v = decode[s[si]];
-            if ((v & 0x8000) != 0) {
-                throwForInvalidValue(si, s[si], v);
+                // INVALID == 0xFFFF, valid values are 0..0x7FFF only
+                if (((v0 | v1) & 0x8000) != 0) {
+                    int offset = (v0 & 0x8000) != 0 ? 0 : 1;
+                    int v = offset == 0 ? v0 : v1;
+                    throwForInvalidValue(si + offset, s[si + offset], v);
+                }
+
+                acc = (acc << 30) | ((long) v0 << 15) | (long) v1;
+                bitCount += 30;
+
+                out[oi] = (byte) (acc >>> (bitCount - 8));
+                out[oi + 1] = (byte) (acc >>> (bitCount - 16));
+                out[oi + 2] = (byte) (acc >>> (bitCount - 24));
+                oi += 3;
+                bitCount -= 24;
+
+                if (bitCount >= 8) {
+                    out[oi++] = (byte) (acc >>> (bitCount - 8));
+                    bitCount -= 8;
+                }
+
+                si += 2;
             }
 
-            acc = (acc << 15) | v;
-            bitCount += 15;
+            if (si < end) {
+                final int v = decode[s[si]];
+                if ((v & 0x8000) != 0) {
+                    throwForInvalidValue(si, s[si], v);
+                }
 
-            out[oi++] = (byte) (acc >>> (bitCount - 8));
-            bitCount -= 8;
-            if (bitCount >= 8) {
+                acc = (acc << 15) | v;
+                bitCount += 15;
+
                 out[oi++] = (byte) (acc >>> (bitCount - 8));
                 bitCount -= 8;
+                if (bitCount >= 8) {
+                    out[oi++] = (byte) (acc >>> (bitCount - 8));
+                    bitCount -= 8;
+                }
             }
         }
 

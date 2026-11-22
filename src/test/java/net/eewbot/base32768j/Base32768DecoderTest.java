@@ -71,5 +71,19 @@ public class Base32768DecoderTest {
         return arguments;
     }
 
+    // Covers every decoder path boundary (Small Path, 8-char / 2-char fast paths, 7-bit and 15-bit tails).
+    @org.junit.jupiter.api.Test
+    void roundTripShortInputs() {
+        java.util.SplittableRandom random = new java.util.SplittableRandom(42);
+        for (int len = 0; len <= 64; len++) {
+            for (int trial = 0; trial < 20; trial++) {
+                byte[] input = new byte[len];
+                random.nextBytes(input);
+                String encoded = Base32768.getEncoder().encodeToString(input);
+                Assertions.assertArrayEquals(input, Base32768.getDecoder().decode(encoded), "length " + len);
+            }
+        }
+    }
+
     record SuccessTestCase(String text, byte[] expected) {}
 }
