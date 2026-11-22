@@ -138,7 +138,8 @@ public class Base32768Encoder {
             out[oi + 1] = lut15[(int) (hi >>> 34) & 0x7FFF];
             out[oi + 2] = lut15[(int) (hi >>> 19) & 0x7FFF];
             out[oi + 3] = lut15[(int) (hi >>> 4) & 0x7FFF];
-            out[oi + 4] = lut15[(int) (((hi & 0xFL) << 11) | ((lo >>> 45) & 0x7FFL))];
+            // lo starts at src[i + 7], so it already holds hi's low 4 bits in bits 59..56
+            out[oi + 4] = lut15[(int) (lo >>> 45) & 0x7FFF];
             out[oi + 5] = lut15[(int) (lo >>> 30) & 0x7FFF];
             out[oi + 6] = lut15[(int) (lo >>> 15) & 0x7FFF];
             out[oi + 7] = lut15[(int) lo & 0x7FFF];
