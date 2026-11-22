@@ -131,6 +131,10 @@ public class Base32768Decoder {
         if (n == 0) return new byte[0];
 
         final char[] decode = DECODE;
+        // String.charAt reloads value/coder and re-checks bounds and Latin1 on every call inside the hot loop
+        // (C2 does not hoist them), which also causes heavy register spills. Copying once is cheaper for
+        // anything beyond tiny inputs: ~+30-40% throughput at >= 1 KB, ~-10% (about 2 ns) at 32 B.
+        final char[] s = src.toCharArray();
 
         final char last = src.charAt(n - 1);
         final int lastValue = decode[last];
@@ -147,14 +151,14 @@ public class Base32768Decoder {
         final int end = n - 1;
         final int fastEnd = end & ~7;
         while (si < fastEnd) {
-            int v0 = decode[src.charAt(si)];
-            int v1 = decode[src.charAt(si + 1)];
-            int v2 = decode[src.charAt(si + 2)];
-            int v3 = decode[src.charAt(si + 3)];
-            int v4 = decode[src.charAt(si + 4)];
-            int v5 = decode[src.charAt(si + 5)];
-            int v6 = decode[src.charAt(si + 6)];
-            int v7 = decode[src.charAt(si + 7)];
+            int v0 = decode[s[si]];
+            int v1 = decode[s[si + 1]];
+            int v2 = decode[s[si + 2]];
+            int v3 = decode[s[si + 3]];
+            int v4 = decode[s[si + 4]];
+            int v5 = decode[s[si + 5]];
+            int v6 = decode[s[si + 6]];
+            int v7 = decode[s[si + 7]];
 
             int m = v0 | v1 | v2 | v3 | v4 | v5 | v6 | v7;
             if ((m & 0x8000) != 0) {
@@ -190,14 +194,14 @@ public class Base32768Decoder {
         // ---- Fast Path (2文字): 2文字(=30bit) -> 3バイト + 余り6bit ----
         final int fast2Limit = end - 1; // 2文字取れる限界（lastは除外）
         while (si < fast2Limit) {
-            final int v0 = decode[src.charAt(si)];
-            final int v1 = decode[src.charAt(si + 1)];
+            final int v0 = decode[s[si]];
+            final int v1 = decode[s[si + 1]];
 
             // INVALID == 0xFFFF, valid values are 0..0x7FFF only
             if (((v0 | v1) & 0x8000) != 0) {
                 int offset = (v0 & 0x8000) != 0 ? 0 : 1;
                 int v = offset == 0 ? v0 : v1;
-                throwForInvalidValue(si + offset, src.charAt(si + offset), v);
+                throwForInvalidValue(si + offset, s[si + offset], v);
             }
 
             acc = (acc << 30) | ((long) v0 << 15) | (long) v1;
@@ -218,9 +222,9 @@ public class Base32768Decoder {
         }
 
         if (si < end) {
-            final int v = decode[src.charAt(si)];
+            final int v = decode[s[si]];
             if ((v & 0x8000) != 0) {
-                throwForInvalidValue(si, src.charAt(si), v);
+                throwForInvalidValue(si, s[si], v);
             }
 
             acc = (acc << 15) | v;
