@@ -17,10 +17,10 @@ public class Base32768Decoder {
     private static final char INVALID = 0xFFFF;
     private static final char FLAG7 = 0x8000;
 
-    private static final int TABLE_SIZE = 0xa840 + 32; // 43104 (max CODES_15 codepoint + 32)
+    // Covers the full char range so that DECODE[c] for any char c needs no bounds check
+    // (C2 eliminates the range check) and never throws ArrayIndexOutOfBoundsException.
+    private static final int TABLE_SIZE = Character.MAX_VALUE + 1; // 65536
     private static final char[] DECODE = new char[TABLE_SIZE];
-    private static final int LAST_BITS_SIZE = (0xa840 >> 5) + 1; // 1347
-    private static final byte[] LAST_BITS = new byte[LAST_BITS_SIZE];
 
     private static final VarHandle VH_LONG_BE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
 
@@ -34,7 +34,6 @@ public class Base32768Decoder {
         for (int[] range : Base32768Encoder.CODES_7_RANGES) {
             for (int cp = range[0]; cp <= range[1]; cp++) {
                 DECODE[cp] = (char) (FLAG7 | idx);
-                LAST_BITS[cp >> 5] = 7;
                 idx++;
             }
         }
@@ -44,7 +43,6 @@ public class Base32768Decoder {
         for (int[] range : Base32768Encoder.CODES_15_RANGES) {
             for (int cp = range[0]; cp <= range[1]; cp++) {
                 DECODE[cp] = (char) idx;
-                LAST_BITS[cp >> 5] = 15;
                 idx++;
             }
         }
@@ -54,10 +52,16 @@ public class Base32768Decoder {
         if (src.isEmpty()) return 0;
         final int n = src.length();
         final char last = src.charAt(n - 1);
-        final int block = last >> 5;
-        final int lastBits = (block < LAST_BITS_SIZE) ? (LAST_BITS[block] & 0xFF) : 0;
-        if (lastBits == 0) throw new IllegalBase32768TextException(n - 1, last);
-        return ((n - 1) * 15 + lastBits) >>> 3;
+        return ((n - 1) * 15 + lastBits(n - 1, last, DECODE[last])) >>> 3;
+    }
+
+    /**
+     * Returns the number of bits carried by the final character (7 or 15).
+     * INVALID (0xFFFF) also has FLAG7 set, so it must be checked first.
+     */
+    private static int lastBits(int position, char last, int v) {
+        if (v == INVALID) throw new IllegalBase32768TextException(position, last);
+        return (v & FLAG7) != 0 ? 7 : 15;
     }
 
     /**
@@ -126,15 +130,14 @@ public class Base32768Decoder {
         final int n = src.length();
         if (n == 0) return new byte[0];
 
+        final char[] decode = DECODE;
+
         final char last = src.charAt(n - 1);
-        final int block = last >> 5;
-        final int lastBits = (block < LAST_BITS_SIZE) ? (LAST_BITS[block] & 0xFF) : 0;
-        if (lastBits == 0) throw new IllegalBase32768TextException(n - 1, last);
+        final int lastValue = decode[last];
+        final int lastBits = lastBits(n - 1, last, lastValue);
 
         final int outLen = ((n - 1) * 15 + lastBits) >>> 3;
         final byte[] out = new byte[outLen];
-
-        final char[] decode = DECODE;
 
         int oi = 0;
         int si = 0;
@@ -232,11 +235,7 @@ public class Base32768Decoder {
         }
 
         {
-            int v = decode[last];
-            if (v == INVALID) {
-                throw new IllegalBase32768TextException(n - 1, last);
-            }
-            v &= 0x7FFF; // strip 7-bit flag if present
+            final int v = lastValue & 0x7FFF; // strip 7-bit flag (validated above)
 
             acc = (acc << lastBits) | (long) v;
             bitCount += lastBits;
