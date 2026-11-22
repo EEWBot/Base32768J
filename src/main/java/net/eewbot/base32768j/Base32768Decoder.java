@@ -189,7 +189,7 @@ public class Base32768Decoder {
 
                 int m = v0 | v1 | v2 | v3 | v4 | v5 | v6 | v7;
                 if ((m & 0x8000) != 0) {
-                    throwDetailedException(src, si, v0, v1, v2, v3, v4, v5, v6, v7);
+                    throwDetailedException(s, si);
                 }
 
                 // w0: v0, v1, v2, v3, v4上位4ビット
@@ -295,11 +295,13 @@ public class Base32768Decoder {
         }
     }
 
-    private static void throwDetailedException(String src, int si, int v0, int v1, int v2, int v3, int v4, int v5, int v6, int v7) {
-        int[] vals = {v0, v1, v2, v3, v4, v5, v6, v7};
+    // Re-decodes the block on the (cold) error path so that the hot loop keeps neither src nor v0..v7 alive for it.
+    private static void throwDetailedException(char[] s, int si) {
         for (int i = 0; i < 8; i++) {
-            if ((vals[i] & 0x8000) != 0) {
-                throwForInvalidValue(si + i, src.charAt(si + i), vals[i]);
+            final char ch = s[si + i];
+            final int v = DECODE[ch];
+            if ((v & 0x8000) != 0) {
+                throwForInvalidValue(si + i, ch, v);
             }
         }
         // Should never reach here
