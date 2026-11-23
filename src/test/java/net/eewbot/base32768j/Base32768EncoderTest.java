@@ -67,6 +67,14 @@ public class Base32768EncoderTest {
         Assertions.assertArrayEquals(expected, java.util.Arrays.copyOf(dst, expected.length), message);
         for (int k = expected.length; k < dst.length; k++) Assertions.assertEquals((byte) 0x5A, dst[k], message);
 
+        // Worst-case-sized dst (3 bytes per char) is encoded into directly; still nothing past the result changes.
+        int chars = (int) ((input.length * 8L + 14) / 15);
+        byte[] big = new byte[chars * 3 + 5];
+        java.util.Arrays.fill(big, (byte) 0x5A);
+        Assertions.assertEquals(expected.length, encoder.encode(input, big), message);
+        Assertions.assertArrayEquals(expected, java.util.Arrays.copyOf(big, expected.length), message);
+        for (int k = expected.length; k < big.length; k++) Assertions.assertEquals((byte) 0x5A, big[k], message);
+
         if (expected.length > 0) {
             byte[] small = new byte[expected.length - 1];
             Assertions.assertThrows(net.eewbot.base32768j.exception.BufferTooSmallException.class,

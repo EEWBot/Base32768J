@@ -121,8 +121,12 @@ public class Base32768Encoder {
             return result.length;
         }
 
-        // The exact UTF-8 length is known only after encoding, and dst must stay untouched if it is too small,
-        // so encode into a worst-case buffer and copy once (no intermediate char[] / String / trimmed array).
+        // dst large enough for the worst case: encode straight into it. Nothing at or past the result length is
+        // written, since the final char is stored with its exact length.
+        if (dst.length >= maxLen) return encodeUtf8Into(src, 0, srcLen, dst);
+
+        // Otherwise the exact UTF-8 length is known only after encoding, and dst must stay untouched if it is too
+        // small, so encode into a worst-case buffer and copy once.
         final byte[] buf = new byte[(int) maxLen];
         final int len = encodeUtf8Into(src, 0, srcLen, buf);
         if (dst.length < len) throw new BufferTooSmallException(len, dst.length);
@@ -175,6 +179,8 @@ public class Base32768Encoder {
     /**
      * Same algorithm as {@link #encodeToString(byte[])}, but writes the UTF-8 form of each char.
      * out must hold at least 3 bytes per output char; returns the number of bytes written.
+     * Only out[0, result) is written: every char but the last is stored with {@link #put} (whose spare byte is
+     * overwritten by the next char), and the last one with {@link #putLast}.
      */
     private static int encodeUtf8Into(byte[] src, int off, int srcLen, byte[] out) {
         final int[] lut15 = UTF8_15;
@@ -184,7 +190,8 @@ public class Base32768Encoder {
         int i = off;
 
         // Fast Path: 15バイト -> 8文字
-        final int fastLimit = end - 14;
+        // Leaves at least one byte for the remainder loop, so that the final char is never produced here.
+        final int fastLimit = end - 15;
         while (i < fastLimit) {
             long hi = (long) VH_LONG_BE.get(src, i);
             long lo = (long) VH_LONG_BE.get(src, i + 7);
@@ -202,8 +209,11 @@ public class Base32768Encoder {
         }
 
         // 残りバイトの処理
+        // Each char is held back in pending until the next one appears, so the final char is known at the end.
+        // Packed values are never 0 (the length is in the top byte), so 0 means "none yet".
         long acc = 0L;
         int bitCount = 0;
+        int pending = 0;
 
         while (i < end) {
             acc = (acc << 8) | (src[i++] & 0xFFL);
@@ -211,34 +221,49 @@ public class Base32768Encoder {
 
             if (bitCount >= 15) {
                 bitCount -= 15;
-                o = put(out, o, lut15[(int) ((acc >>> bitCount) & 0x7FFF)]);
+                if (pending != 0) o = put(out, o, pending);
+                pending = lut15[(int) ((acc >>> bitCount) & 0x7FFF)];
                 acc &= (1L << bitCount) - 1L;
             }
         }
 
         // 端数処理
-        if (bitCount >= 8) {
-            int v = (int) (acc << (15 - bitCount));
-            v |= 0x7F >>> (bitCount - 8);
-            o = put(out, o, lut15[v]);
-        } else if (bitCount > 0) {
-            int v = (int) (acc << (7 - bitCount));
-            v |= 0x3F >>> (bitCount - 1);
-            o = put(out, o, UTF8_7[v]);
+        if (bitCount > 0) {
+            if (pending != 0) o = put(out, o, pending);
+            if (bitCount >= 8) {
+                int v = (int) (acc << (15 - bitCount));
+                v |= 0x7F >>> (bitCount - 8);
+                pending = lut15[v];
+            } else {
+                int v = (int) (acc << (7 - bitCount));
+                v |= 0x3F >>> (bitCount - 1);
+                pending = UTF8_7[v];
+            }
         }
 
-        return o;
+        return pending != 0 ? putLast(out, o, pending) : o;
     }
 
     /**
      * Writes one packed UTF-8 char. Always stores 3 bytes so that there is no branch on the length; for a 2-byte char
-     * the third byte lands on the next char's slot (or past the result) and is overwritten or trimmed.
+     * the third byte lands on the next char's slot and is overwritten by it. Must not be used for the final char.
      */
     private static int put(byte[] out, int o, int utf8) {
         out[o] = (byte) (utf8 >>> 16);
         out[o + 1] = (byte) (utf8 >>> 8);
         out[o + 2] = (byte) utf8;
         return o + (utf8 >>> 24);
+    }
+
+    /** Writes the final packed UTF-8 char with its exact length, so that nothing past the result is touched. */
+    private static int putLast(byte[] out, int o, int utf8) {
+        out[o] = (byte) (utf8 >>> 16);
+        out[o + 1] = (byte) (utf8 >>> 8);
+        if (utf8 >>> 24 == 3) {
+            out[o + 2] = (byte) utf8;
+            return o + 3;
+        }
+        return o + 2;
     }
 
     /**
