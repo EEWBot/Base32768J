@@ -85,6 +85,52 @@ public class Base32768DecoderTest {
         }
     }
 
+    // Corrupts valid encodings of every short length so that each decoder path (Small Path, 8-char block,
+    // and the tail after it for every remainder length) must reject them.
+    @org.junit.jupiter.api.Test
+    void rejectsCorruptedShortInputs() {
+        java.util.SplittableRandom random = new java.util.SplittableRandom(7);
+        char sevenBitChar = (char) Base32768Encoder.CODES_7_RANGES[0][0];
+        for (int len = 1; len <= 64; len++) {
+            byte[] input = new byte[len];
+            random.nextBytes(input);
+            char[] encoded = Base32768.getEncoder().encodeToString(input).toCharArray();
+            int lastIndex = encoded.length - 1;
+
+            // 1. Padding bits not all 1s: clear the lowest bit of the final character's value.
+            int lastBits = isSevenBit(encoded[lastIndex]) ? 7 : 15;
+            int padBits = (lastIndex * 15 + lastBits) & 7;
+            if (padBits != 0) {
+                char[] bad = encoded.clone();
+                bad[lastIndex] = (char) (bad[lastIndex] & ~1); // value's lowest bit == code point's lowest bit
+                assertRejected(bad, "bad padding, length " + len);
+            }
+
+            // 2. A 7-bit character and 3. an invalid character at every non-final position.
+            for (int pos = 0; pos < lastIndex; pos++) {
+                char[] bad7 = encoded.clone();
+                bad7[pos] = sevenBitChar;
+                assertRejected(bad7, "7-bit char at " + pos + ", length " + len);
+
+                char[] badChar = encoded.clone();
+                badChar[pos] = '�';
+                assertRejected(badChar, "invalid char at " + pos + ", length " + len);
+            }
+        }
+    }
+
+    private static boolean isSevenBit(char c) {
+        for (int[] range : Base32768Encoder.CODES_7_RANGES) {
+            if (c >= range[0] && c <= range[1]) return true;
+        }
+        return false;
+    }
+
+    private static void assertRejected(char[] text, String message) {
+        Assertions.assertThrows(net.eewbot.base32768j.exception.IllegalBase32768TextException.class,
+            () -> Base32768.getDecoder().decode(new String(text)), message);
+    }
+
     @org.junit.jupiter.api.Test
     void decodeByteBufferAdvancesPositionOnlyOnSuccess() {
         byte[] payload = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17};
