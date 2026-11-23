@@ -8,6 +8,7 @@ import java.lang.invoke.VarHandle;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 /**
  * This class implements an encoder for encoding byte data using the Base32768 encoding scheme follows the
@@ -47,6 +48,14 @@ public class Base32768Encoder {
     private static final char[] CODES15_CHAR = new char[1 << 15];
     private static final char[] CODES7_CHAR = new char[1 << 7];
 
+    // UTF-8 form of each output char, packed as (byteLength << 24) | b0 << 16 | b1 << 8 | b2.
+    // All chars are in U+0180..U+A85F (no surrogates), so they take 2 or 3 bytes; b2 is 0 for 2-byte chars.
+    private static final int[] UTF8_15 = new int[1 << 15];
+    private static final int[] UTF8_7 = new int[1 << 7];
+
+    // Largest array length the JVM reliably allocates (same soft limit as the JDK uses).
+    private static final int MAX_ARRAY_LENGTH = Integer.MAX_VALUE - 8;
+
     static {
         // Build CODES15_CHAR lookup table from Unicode ranges
         int idx = 0;
@@ -63,6 +72,20 @@ public class Base32768Encoder {
                 CODES7_CHAR[idx++] = (char) cp;
             }
         }
+
+        for (int v = 0; v < UTF8_15.length; v++) UTF8_15[v] = utf8(CODES15_CHAR[v]);
+        for (int v = 0; v < UTF8_7.length; v++) UTF8_7[v] = utf8(CODES7_CHAR[v]);
+    }
+
+    private static int utf8(char c) {
+        if (c < 0x800) {
+            return (2 << 24) | (0xC0 | c >>> 6) << 16 | (0x80 | c & 0x3F) << 8;
+        }
+        return (3 << 24) | (0xE0 | c >>> 12) << 16 | (0x80 | (c >>> 6) & 0x3F) << 8 | (0x80 | c & 0x3F);
+    }
+
+    private static int charLength(int srcLen) {
+        return (int) (((srcLen * 8L) + 14L) / 15);
     }
 
     /**
@@ -73,7 +96,7 @@ public class Base32768Encoder {
      * @return A newly-allocated byte array containing the resulting encoded bytes.
      */
     public byte[] encode(byte[] src) {
-        return encodeToString(src).getBytes(StandardCharsets.UTF_8);
+        return encodeUtf8(src, 0, src.length);
     }
 
     /**
@@ -89,10 +112,22 @@ public class Base32768Encoder {
      * @throws BufferTooSmallException if dst does not have enough space for encoding all input bytes.
      */
     public int encode(byte[] src, byte[] dst) {
-        byte[] result = encode(src);
-        if (dst.length < result.length) throw new BufferTooSmallException(result.length, dst.length);
-        System.arraycopy(result, 0, dst, 0, result.length);
-        return result.length;
+        final int srcLen = src.length;
+        final long maxLen = charLength(srcLen) * 3L;
+        if (maxLen > MAX_ARRAY_LENGTH) {
+            byte[] result = encode(src);
+            if (dst.length < result.length) throw new BufferTooSmallException(result.length, dst.length);
+            System.arraycopy(result, 0, dst, 0, result.length);
+            return result.length;
+        }
+
+        // The exact UTF-8 length is known only after encoding, and dst must stay untouched if it is too small,
+        // so encode into a worst-case buffer and copy once (no intermediate char[] / String / trimmed array).
+        final byte[] buf = new byte[(int) maxLen];
+        final int len = encodeUtf8Into(src, 0, srcLen, buf);
+        if (dst.length < len) throw new BufferTooSmallException(len, dst.length);
+        System.arraycopy(buf, 0, dst, 0, len);
+        return len;
     }
 
     /**
@@ -105,9 +140,105 @@ public class Base32768Encoder {
      * @return A newly-allocated byte buffer containing the encoded bytes.
      */
     public ByteBuffer encode(ByteBuffer buffer) {
-        byte[] src = new byte[buffer.remaining()];
-        buffer.get(src);
-        return ByteBuffer.wrap(encode(src));
+        final byte[] result;
+        if (buffer.hasArray()) {
+            // Encode straight from the backing array instead of copying the remaining bytes first.
+            result = encodeUtf8(buffer.array(), buffer.arrayOffset() + buffer.position(), buffer.remaining());
+            buffer.position(buffer.limit());
+        } else {
+            byte[] src = new byte[buffer.remaining()];
+            buffer.get(src);
+            result = encode(src);
+        }
+        return ByteBuffer.wrap(result);
+    }
+
+    /**
+     * Encodes src[off, off + srcLen) directly to UTF-8 bytes, skipping the char[] and String that
+     * encodeToString(...).getBytes(UTF_8) would build.
+     */
+    private byte[] encodeUtf8(byte[] src, int off, int srcLen) {
+        if (srcLen == 0) return new byte[0];
+
+        final long maxLen = charLength(srcLen) * 3L;
+        if (maxLen > MAX_ARRAY_LENGTH) {
+            // The worst-case buffer cannot be allocated; take the String route, which needs no such buffer.
+            byte[] whole = (off == 0 && srcLen == src.length) ? src : Arrays.copyOfRange(src, off, off + srcLen);
+            return encodeToString(whole).getBytes(StandardCharsets.UTF_8);
+        }
+
+        final byte[] out = new byte[(int) maxLen];
+        final int len = encodeUtf8Into(src, off, srcLen, out);
+        return len == out.length ? out : Arrays.copyOf(out, len);
+    }
+
+    /**
+     * Same algorithm as {@link #encodeToString(byte[])}, but writes the UTF-8 form of each char.
+     * out must hold at least 3 bytes per output char; returns the number of bytes written.
+     */
+    private static int encodeUtf8Into(byte[] src, int off, int srcLen, byte[] out) {
+        final int[] lut15 = UTF8_15;
+
+        final int end = off + srcLen;
+        int o = 0;
+        int i = off;
+
+        // Fast Path: 15バイト -> 8文字
+        final int fastLimit = end - 14;
+        while (i < fastLimit) {
+            long hi = (long) VH_LONG_BE.get(src, i);
+            long lo = (long) VH_LONG_BE.get(src, i + 7);
+
+            o = put(out, o, lut15[(int) (hi >>> 49)]);
+            o = put(out, o, lut15[(int) (hi >>> 34) & 0x7FFF]);
+            o = put(out, o, lut15[(int) (hi >>> 19) & 0x7FFF]);
+            o = put(out, o, lut15[(int) (hi >>> 4) & 0x7FFF]);
+            o = put(out, o, lut15[(int) (lo >>> 45) & 0x7FFF]);
+            o = put(out, o, lut15[(int) (lo >>> 30) & 0x7FFF]);
+            o = put(out, o, lut15[(int) (lo >>> 15) & 0x7FFF]);
+            o = put(out, o, lut15[(int) lo & 0x7FFF]);
+
+            i += 15;
+        }
+
+        // 残りバイトの処理
+        long acc = 0L;
+        int bitCount = 0;
+
+        while (i < end) {
+            acc = (acc << 8) | (src[i++] & 0xFFL);
+            bitCount += 8;
+
+            if (bitCount >= 15) {
+                bitCount -= 15;
+                o = put(out, o, lut15[(int) ((acc >>> bitCount) & 0x7FFF)]);
+                acc &= (1L << bitCount) - 1L;
+            }
+        }
+
+        // 端数処理
+        if (bitCount >= 8) {
+            int v = (int) (acc << (15 - bitCount));
+            v |= 0x7F >>> (bitCount - 8);
+            o = put(out, o, lut15[v]);
+        } else if (bitCount > 0) {
+            int v = (int) (acc << (7 - bitCount));
+            v |= 0x3F >>> (bitCount - 1);
+            o = put(out, o, UTF8_7[v]);
+        }
+
+        return o;
+    }
+
+    /**
+     * Writes one packed UTF-8 char. Always stores 3 bytes so that there is no branch on the length; for a 2-byte char
+     * the third byte lands on the next char's slot (or past the result) and is overwritten or trimmed.
+     */
+    private static int put(byte[] out, int o, int utf8) {
+        out[o] = (byte) (utf8 >>> 16);
+        out[o + 1] = (byte) (utf8 >>> 8);
+        out[o + 2] = (byte) utf8;
+        return o + (utf8 >>> 24);
     }
 
     /**
@@ -123,7 +254,7 @@ public class Base32768Encoder {
         final char[] lut7 = CODES7_CHAR;
 
         final int srcLen = src.length;
-        final int outLen = (int) (((srcLen * 8L) + 14L) / 15);
+        final int outLen = charLength(srcLen);
         final char[] out = new char[outLen];
         int oi = 0;
         int i = 0;
