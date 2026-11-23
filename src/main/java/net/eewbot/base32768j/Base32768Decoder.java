@@ -52,13 +52,6 @@ public class Base32768Decoder {
         }
     }
 
-    private static int calcBufferLength(String src) {
-        if (src.isEmpty()) return 0;
-        final int n = src.length();
-        final char last = src.charAt(n - 1);
-        return outputLength(n, lastBits(n - 1, last, DECODE[last]));
-    }
-
     /**
      * Number of decoded bytes for n characters whose final character carries lastBits bits.
      * Computed in long: (n - 1) * 15 overflows int beyond ~143M characters, and the int result
@@ -96,7 +89,9 @@ public class Base32768Decoder {
      * the given output byte array, starting at offset 0.<br>
      * It is the responsibility of the invoker of this method to make sure the output byte array dst has enough space
      * for decoding all bytes from the input byte array. No bytes will be written to the output byte array if the output
-     * byte array is not big enough.
+     * byte array is not big enough.<br>
+     * If the input byte array is not in valid Base32768 encoding scheme then some bytes may have been written to the
+     * output byte array before IllegalBase32768TextException is thrown (same as {@link java.util.Base64.Decoder}).
      *
      * @param src the byte array to decode
      * @param dst the output byte array
@@ -105,15 +100,21 @@ public class Base32768Decoder {
      * @throws BufferTooSmallException       if dst does not have enough space for decoding all input bytes.
      */
     public int decode(byte[] src, byte[] dst) {
-        String srcString = new String(src, StandardCharsets.UTF_8);
-        int bufferLength = calcBufferLength(srcString);
+        final String s = new String(src, StandardCharsets.UTF_8);
+        final int n = s.length();
+        if (n == 0) return 0;
 
-        if (dst.length < bufferLength) throw new BufferTooSmallException(bufferLength, dst.length);
+        final char last = s.charAt(n - 1);
+        final int lastValue = DECODE[last];
+        final int lastBits = lastBits(n - 1, last, lastValue);
+        final int outLen = outputLength(n, lastBits);
 
-        byte[] result = decode(srcString);
-        System.arraycopy(result, 0, dst, 0, bufferLength);
+        if (dst.length < outLen) throw new BufferTooSmallException(outLen, dst.length);
 
-        return bufferLength;
+        // Decode straight into dst: no temporary result array and no extra copy.
+        // Only dst[0, outLen) is written, since every write (including the 8-byte VarHandle stores) is inside the result.
+        decodeInto(s, n, lastValue, lastBits, dst);
+        return outLen;
     }
 
     /**
@@ -129,10 +130,17 @@ public class Base32768Decoder {
      * @throws IllegalBase32768TextException if src is not in valid Base32768 scheme.
      */
     public ByteBuffer decode(ByteBuffer buffer) {
-        // Absolute get: the position is advanced only after decoding succeeds, as documented above.
-        byte[] src = new byte[buffer.remaining()];
-        buffer.get(buffer.position(), src);
-        ByteBuffer result = ByteBuffer.wrap(decode(src));
+        final String s;
+        if (buffer.hasArray()) {
+            // Build the String straight from the backing array instead of copying the remaining bytes first.
+            s = new String(buffer.array(), buffer.arrayOffset() + buffer.position(), buffer.remaining(), StandardCharsets.UTF_8);
+        } else {
+            // Absolute get: the position is advanced only after decoding succeeds, as documented above.
+            byte[] src = new byte[buffer.remaining()];
+            buffer.get(buffer.position(), src);
+            s = new String(src, StandardCharsets.UTF_8);
+        }
+        ByteBuffer result = ByteBuffer.wrap(decode(s));
         buffer.position(buffer.limit());
         return result;
     }
@@ -148,14 +156,21 @@ public class Base32768Decoder {
         final int n = src.length();
         if (n == 0) return new byte[0];
 
-        final char[] decode = DECODE;
-
         final char last = src.charAt(n - 1);
-        final int lastValue = decode[last];
+        final int lastValue = DECODE[last];
         final int lastBits = lastBits(n - 1, last, lastValue);
 
-        final int outLen = outputLength(n, lastBits);
-        final byte[] out = new byte[outLen];
+        final byte[] out = new byte[outputLength(n, lastBits)];
+        decodeInto(src, n, lastValue, lastBits, out);
+        return out;
+    }
+
+    /**
+     * Decodes src (n &gt; 0 chars, whose final char has already been validated as lastValue / lastBits) into
+     * out[0, outputLength(n, lastBits)). out may be longer; nothing past the result is written.
+     */
+    private static void decodeInto(String src, int n, int lastValue, int lastBits, byte[] out) {
+        final char[] decode = DECODE;
 
         int oi = 0;
         int si = 0;
@@ -293,8 +308,6 @@ public class Base32768Decoder {
             long actual = acc & ((1L << bitCount) - 1);
             throw new IllegalBase32768TextException("Bad padding at position " + (n - 1) + ": expected " + bitCount + " bits of 1s, got 0b" + Long.toBinaryString(actual));
         }
-
-        return out;
     }
 
     public InputStream wrap(InputStream is) {

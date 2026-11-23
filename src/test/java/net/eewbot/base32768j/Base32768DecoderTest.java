@@ -155,6 +155,53 @@ public class Base32768DecoderTest {
         Assertions.assertEquals(prefix.length, ng.position());
     }
 
+    // decode(byte[], byte[]) decodes straight into dst and decode(ByteBuffer) reads the backing array directly.
+    @org.junit.jupiter.api.Test
+    void byteApisMatchDecodeString() {
+        java.util.SplittableRandom random = new java.util.SplittableRandom(11);
+        Base32768Decoder decoder = Base32768.getDecoder();
+        for (int len = 0; len <= 64; len++) {
+            for (int trial = 0; trial < 10; trial++) {
+                byte[] input = new byte[len];
+                random.nextBytes(input);
+                byte[] encoded = Base32768.getEncoder().encode(input);
+                String message = "length " + len + ", trial " + trial;
+
+                Assertions.assertArrayEquals(input, decoder.decode(encoded), message);
+
+                byte[] dst = new byte[len + 20];
+                java.util.Arrays.fill(dst, (byte) 0x5A);
+                Assertions.assertEquals(len, decoder.decode(encoded, dst), message);
+                Assertions.assertArrayEquals(input, java.util.Arrays.copyOf(dst, len), message);
+                for (int k = len; k < dst.length; k++) Assertions.assertEquals((byte) 0x5A, dst[k], message);
+
+                if (len > 0) {
+                    byte[] small = new byte[len - 1];
+                    Assertions.assertThrows(net.eewbot.base32768j.exception.BufferTooSmallException.class,
+                        () -> decoder.decode(encoded, small), message);
+                    for (byte b : small) Assertions.assertEquals(0, b, message);
+                }
+
+                byte[] backing = new byte[encoded.length + 6];
+                System.arraycopy(encoded, 0, backing, 4, encoded.length);
+                java.nio.ByteBuffer sliced = java.nio.ByteBuffer.wrap(backing, 2, encoded.length + 2).slice();
+                sliced.position(2);
+                java.nio.ByteBuffer result = decoder.decode(sliced);
+                Assertions.assertEquals(sliced.limit(), sliced.position(), message);
+                byte[] actual = new byte[result.remaining()];
+                result.get(actual);
+                Assertions.assertArrayEquals(input, actual, message);
+
+                java.nio.ByteBuffer direct = java.nio.ByteBuffer.allocateDirect(encoded.length).put(encoded).flip();
+                result = decoder.decode(direct);
+                Assertions.assertEquals(direct.limit(), direct.position(), message);
+                actual = new byte[result.remaining()];
+                result.get(actual);
+                Assertions.assertArrayEquals(input, actual, message);
+            }
+        }
+    }
+
     @org.junit.jupiter.api.Test
     void outputLengthDoesNotOverflowForHugeInputs() {
         // (n - 1) * 15 overflows int here, and the old int formula gave a wrong length beyond ~286M chars.
